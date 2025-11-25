@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>LiteLLM Target</h2>
+  <form action="/admin/litellm" method="post">
+    <label>Base URL <input type="text" name="base_url" value="{{ config.litellm.base_url }}" required /></label>
+    <label>API Key <input type="text" name="api_key" value="{{ config.litellm.api_key or '' }}" /></label>
+    <button type="submit">Save target</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Sync Interval</h2>
+  <form action="/admin/interval" method="post">
+    <label>Seconds <input type="number" name="sync_interval_seconds" value="{{ config.sync_interval_seconds }}" min="30" /></label>
+    <button type="submit">Update interval</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Sources</h2>
+  <div class="sources">
+    <ul>
+      {% for source in config.sources %}
+      <li>
+        <div>
+          <strong>{{ source.name }}</strong> — {{ human_source_type(source.type) }} ({{ source.base_url }})
+        </div>
+        <form action="/admin/sources/delete" method="post">
+          <input type="hidden" name="name" value="{{ source.name }}" />
+          <button type="submit">Delete</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <h3>Add source</h3>
+  <form action="/admin/sources" method="post">
+    <label>Name <input type="text" name="name" required /></label>
+    <label>Base URL <input type="text" name="base_url" required /></label>
+    <label>
+      Type
+      <select name="source_type" required>
+        <option value="ollama">Ollama</option>
+        <option value="litellm">LiteLLM / OpenAI</option>
+      </select>
+    </label>
+    <label>API Key <input type="text" name="api_key" /></label>
+    <button type="submit">Add source</button>
+  </form>
+</section>
+{% endblock %}
