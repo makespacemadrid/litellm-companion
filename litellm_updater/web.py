@@ -1,0 +1,142 @@
+"""FastAPI application exposing UI and APIs for syncing models."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
+from datetime import datetime
+from typing import Dict
+
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from .config import (
+    add_source,
+    load_config,
+    remove_source,
+    set_sync_interval,
+    update_litellm_target,
+)
+from .models import AppConfig, LitellmTarget, SourceEndpoint, SourceModels, SourceType
+from .sync import start_scheduler, sync_once
+
+logger = logging.getLogger(__name__)
+
+
+class SyncState:
+    """In-memory store for the latest synchronization results."""
+
+    def __init__(self) -> None:
+        self.models: Dict[str, SourceModels] = {}
+        self.last_synced: datetime | None = None
+
+    def update(self, results: Dict[str, SourceModels]) -> None:
+        self.models = results
+        self.last_synced = datetime.utcnow()
+
+
+sync_state = SyncState()
+
+
+def _human_source_type(source_type: SourceType) -> str:
+    return "Ollama" if source_type is SourceType.OLLAMA else "LiteLLM / OpenAI"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(start_scheduler(load_config, sync_state.update))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="LiteLLM Updater", description="Sync models into LiteLLM", lifespan=lifespan)
+    templates = Jinja2Templates(directory="litellm_updater/templates")
+    app.mount("/static", StaticFiles(directory="litellm_updater/static"), name="static")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request):
+        config = load_config()
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "config": config,
+                "sync_state": sync_state,
+                "human_source_type": _human_source_type,
+            },
+        )
+
+    @app.get("/models", response_class=HTMLResponse)
+    async def models_page(request: Request):
+        config = load_config()
+        models = sync_state.models
+        return templates.TemplateResponse(
+            "models.html",
+            {
+                "request": request,
+                "config": config,
+                "models": models,
+                "last_synced": sync_state.last_synced,
+            },
+        )
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_page(request: Request):
+        config = load_config()
+        return templates.TemplateResponse(
+            "admin.html",
+            {"request": request, "config": config, "human_source_type": _human_source_type},
+        )
+
+    @app.post("/admin/sources")
+    async def add_source_form(
+        name: str = Form(...),
+        base_url: str = Form(...),
+        source_type: SourceType = Form(...),
+        api_key: str | None = Form(None),
+    ):
+        endpoint = SourceEndpoint(name=name, base_url=base_url, type=source_type, api_key=api_key or None)
+        add_source(endpoint)
+        return RedirectResponse(url="/admin", status_code=303)
+
+    @app.post("/admin/sources/delete")
+    async def delete_source_form(name: str = Form(...)):
+        remove_source(name)
+        return RedirectResponse(url="/admin", status_code=303)
+
+    @app.post("/admin/litellm")
+    async def update_litellm(base_url: str = Form(...), api_key: str | None = Form(None)):
+        target = LitellmTarget(base_url=base_url, api_key=api_key or None)
+        update_litellm_target(target)
+        return RedirectResponse(url="/admin", status_code=303)
+
+    @app.post("/admin/interval")
+    async def update_interval(sync_interval_seconds: int = Form(...)):
+        set_sync_interval(sync_interval_seconds)
+        return RedirectResponse(url="/admin", status_code=303)
+
+    @app.post("/sync")
+    async def manual_sync():
+        config = load_config()
+        results = await sync_once(config)
+        sync_state.update(results)
+        return RedirectResponse(url="/models", status_code=303)
+
+    @app.get("/api/sources")
+    async def api_sources() -> AppConfig:
+        return load_config()
+
+    @app.get("/api/models")
+    async def api_models() -> Dict[str, SourceModels]:
+        return sync_state.models
+
+    return app
+
+

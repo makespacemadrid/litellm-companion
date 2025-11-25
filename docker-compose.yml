@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  litellm-updater:
+    build: .
+    env_file:
+      - example.env
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    command: >
+      uvicorn litellm_updater.web:create_app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --log-level ${LOG_LEVEL:-info}

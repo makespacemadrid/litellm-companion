@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>Current Status</h2>
+  <p>Target LiteLLM: <strong>{{ config.litellm.base_url }}</strong></p>
+  <p>Sync interval: every {{ config.sync_interval_seconds }} seconds</p>
+  {% if sync_state.last_synced %}
+  <p>Last synced at {{ sync_state.last_synced }}</p>
+  {% else %}
+  <p>No sync has completed yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Configured Sources</h2>
+  <ul class="source-list">
+    {% for source in config.sources %}
+    <li>
+      <strong>{{ source.name }}</strong> — {{ human_source_type(source.type) }} @ {{ source.base_url }}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>Actions</h2>
+  <form action="/sync" method="post">
+    <button type="submit">Run sync now</button>
+  </form>
+</section>
+{% endblock %}
