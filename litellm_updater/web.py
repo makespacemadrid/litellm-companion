@@ -20,6 +20,7 @@ from .config import (
     update_litellm_target,
 )
 from .models import AppConfig, LitellmTarget, SourceEndpoint, SourceModels, SourceType
+from .sources import fetch_litellm_target_models, fetch_source_models
 from .sync import start_scheduler, sync_once
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,10 @@ class SyncState:
 
     def update(self, results: Dict[str, SourceModels]) -> None:
         self.models = results
+        self.last_synced = datetime.utcnow()
+
+    def update_source(self, source_name: str, source_models: SourceModels) -> None:
+        self.models[source_name] = source_models
         self.last_synced = datetime.utcnow()
 
 
@@ -73,19 +78,24 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.get("/models", response_class=HTMLResponse)
-    async def models_page(request: Request):
+    @app.get("/providers", response_class=HTMLResponse)
+    async def providers_page(request: Request):
         config = load_config()
         models = sync_state.models
         return templates.TemplateResponse(
-            "models.html",
+            "providers.html",
             {
                 "request": request,
                 "config": config,
                 "models": models,
                 "last_synced": sync_state.last_synced,
+                "human_source_type": _human_source_type,
             },
         )
+
+    @app.get("/models", response_class=HTMLResponse)
+    async def models_redirect():
+        return RedirectResponse(url="/providers", status_code=308)
 
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_page(request: Request):
@@ -93,6 +103,34 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse(
             "admin.html",
             {"request": request, "config": config, "human_source_type": _human_source_type},
+        )
+
+    @app.get("/litellm", response_class=HTMLResponse)
+    async def litellm_page(request: Request):
+        config = load_config()
+        litellm_models = []
+        litellm_error: str | None = None
+        fetched_at: datetime | None = None
+
+        if config.litellm.configured:
+            try:
+                litellm_models = await fetch_litellm_target_models(config.litellm)
+                fetched_at = datetime.utcnow()
+            except Exception as exc:  # pragma: no cover - runtime logging
+                logger.exception("Failed fetching LiteLLM models: %s", exc)
+                litellm_error = str(exc)
+        else:
+            litellm_error = "LiteLLM target is not configured."
+
+        return templates.TemplateResponse(
+            "litellm.html",
+            {
+                "request": request,
+                "config": config,
+                "litellm_models": litellm_models,
+                "litellm_error": litellm_error,
+                "fetched_at": fetched_at,
+            },
         )
 
     @app.post("/admin/sources")
@@ -133,7 +171,23 @@ def create_app() -> FastAPI:
             sync_state.update(results)
         except Exception:  # pragma: no cover - defensive logging for manual runs
             logger.exception("Manual sync failed")
-        return RedirectResponse(url="/models", status_code=303)
+        return RedirectResponse(url="/providers", status_code=303)
+
+    @app.post("/providers/refresh")
+    async def refresh_provider_models(name: str = Form(...)):
+        config = load_config()
+        source = next((source for source in config.sources if source.name == name), None)
+        if not source:
+            logger.warning("Attempted to refresh unknown source %s", name)
+            return RedirectResponse(url="/providers", status_code=303)
+
+        try:
+            models = await fetch_source_models(source)
+            sync_state.update_source(name, models)
+        except Exception:  # pragma: no cover - runtime logging for diagnostics
+            logger.exception("Failed refreshing models for %s", name)
+
+        return RedirectResponse(url="/providers", status_code=303)
 
     @app.get("/api/sources")
     async def api_sources() -> AppConfig:

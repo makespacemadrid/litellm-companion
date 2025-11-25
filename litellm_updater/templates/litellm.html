@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>LiteLLM Models</h2>
+  {% if litellm_error %}
+  <p class="muted">{{ litellm_error }}</p>
+  {% else %}
+  <p class="muted">Fetched at {{ fetched_at }}</p>
+  {% if litellm_models %}
+  <ul class="model-cards">
+    {% for model in litellm_models %}
+    <li class="model-card">
+      <div class="model-card__header">{{ model.id }}</div>
+      <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No models were returned by the LiteLLM endpoint.</p>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

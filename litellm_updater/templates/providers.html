@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h2>Providers</h2>
+  {% if config.sources %}
+  {% for source in config.sources %}
+  <div class="source-block">
+    <div class="source-header">
+      <div>
+        <h3>{{ source.name }}</h3>
+        <p class="muted">{{ human_source_type(source.type) }} — {{ source.base_url }}</p>
+      </div>
+      <form action="/providers/refresh" method="post">
+        <input type="hidden" name="name" value="{{ source.name }}" />
+        <button type="submit">Refresh list</button>
+      </form>
+    </div>
+    {% set source_models = models.get(source.name) %}
+    {% if source_models %}
+    <p class="muted">Last fetched at {{ source_models.fetched_at or last_synced }}</p>
+    <ul class="model-cards">
+      {% for model in source_models.models %}
+      <li class="model-card">
+        <div class="model-card__header">{{ model.id }}</div>
+        <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No models fetched yet for this provider.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>No sources configured yet. Add providers in the admin page.</p>
+  {% endif %}
+</section>
+<section class="panel">
+  <form action="/sync" method="post">
+    <button type="submit">Run sync now</button>
+  </form>
+</section>
+{% endblock %}

@@ -6,7 +6,7 @@ from typing import List
 
 import httpx
 
-from .models import ModelMetadata, SourceEndpoint, SourceModels, SourceType
+from .models import LitellmTarget, ModelMetadata, SourceEndpoint, SourceModels, SourceType
 
 
 async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint) -> List[ModelMetadata]:
@@ -31,6 +31,22 @@ async def fetch_litellm_models(client: httpx.AsyncClient, source: SourceEndpoint
     payload = response.json()
     models = payload.get("data", [])
     return [ModelMetadata(id=model.get("id", "unknown"), raw=model) for model in models]
+
+
+async def fetch_litellm_target_models(target: LitellmTarget) -> List[ModelMetadata]:
+    """Fetch models directly from the configured LiteLLM endpoint."""
+
+    if not target.base_url:
+        raise ValueError("LiteLLM endpoint is not configured")
+
+    source = SourceEndpoint(
+        name="LiteLLM",
+        base_url=target.base_url,
+        type=SourceType.LITELLM,
+        api_key=target.api_key,
+    )
+    async with httpx.AsyncClient() as client:
+        return await fetch_litellm_models(client, source)
 
 
 async def fetch_source_models(source: SourceEndpoint) -> SourceModels:
