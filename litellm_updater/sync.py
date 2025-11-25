@@ -37,8 +37,6 @@ async def sync_once(config: AppConfig) -> Dict[str, SourceModels]:
             try:
                 source_models = await fetch_source_models(source)
                 results[source.name] = source_models
-                for model in source_models.models:
-                    await _register_model_with_litellm(client, config.litellm.base_url, config.litellm.api_key, model)
             except httpx.RequestError as exc:  # pragma: no cover - runtime logging
                 logger.warning(
                     "Failed reaching source %s at %s: %s",
@@ -46,8 +44,30 @@ async def sync_once(config: AppConfig) -> Dict[str, SourceModels]:
                     source.base_url,
                     exc,
                 )
+                continue
             except Exception as exc:  # pragma: no cover - runtime logging
                 logger.exception("Failed syncing source %s: %s", source.name, exc)
+                continue
+
+            if not config.litellm.configured:
+                logger.info("LiteLLM target not configured; skipping registration for %s", source.name)
+                continue
+
+            for model in source_models.models:
+                try:
+                    await _register_model_with_litellm(
+                        client, config.litellm.base_url, config.litellm.api_key, model
+                    )
+                except httpx.HTTPStatusError as exc:  # pragma: no cover - runtime logging
+                    logger.warning(
+                        "LiteLLM rejected model %s from %s: %s", model.id, source.name, exc.response.text
+                    )
+                except httpx.RequestError as exc:  # pragma: no cover - runtime logging
+                    logger.warning(
+                        "Failed reaching LiteLLM at %s: %s", config.litellm.base_url, exc
+                    )
+                except Exception as exc:  # pragma: no cover - runtime logging
+                    logger.exception("Unexpected error registering model %s from %s: %s", model.id, source.name, exc)
     return results
 
 
@@ -56,13 +76,23 @@ async def start_scheduler(config_loader: Callable[[], AppConfig], store_callback
 
     logger.info("Starting scheduler")
     while True:
-        config = config_loader()
+        try:
+            config = config_loader()
+        except Exception as exc:  # pragma: no cover - runtime logging
+            logger.exception("Failed loading config: %s", exc)
+            await asyncio.sleep(60)
+            continue
+
         if config.sync_interval_seconds <= 0:
             logger.info("Automatic synchronization disabled; skipping run")
             await asyncio.sleep(60)
             continue
 
-        results = await sync_once(config)
-        store_callback(results)
+        try:
+            results = await sync_once(config)
+            store_callback(results)
+        except Exception as exc:  # pragma: no cover - runtime logging
+            logger.exception("Sync loop failed: %s", exc)
+
         await asyncio.sleep(config.sync_interval_seconds)
 

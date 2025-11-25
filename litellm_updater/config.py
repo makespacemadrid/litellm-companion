@@ -11,11 +11,7 @@ from .models import AppConfig, LitellmTarget, SourceEndpoint, SourceType
 
 DEFAULT_CONFIG_PATH = Path("data/config.json")
 
-DEFAULT_CONFIG = AppConfig(
-    litellm=LitellmTarget(base_url="http://localhost:4000"),
-    sources=[],
-    sync_interval_seconds=0,
-)
+DEFAULT_CONFIG = AppConfig()
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:

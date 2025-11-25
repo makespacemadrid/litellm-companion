@@ -2,7 +2,11 @@
 {% block content %}
 <section class="panel">
   <h2>Current Status</h2>
+  {% if config.litellm.configured %}
   <p>Target LiteLLM: <strong>{{ config.litellm.base_url }}</strong></p>
+  {% else %}
+  <p>LiteLLM target is <strong>not configured</strong>. Set it in the admin page to enable synchronization.</p>
+  {% endif %}
   {% if config.sync_interval_seconds > 0 %}
   <p>Sync interval: every {{ config.sync_interval_seconds }} seconds</p>
   {% else %}
