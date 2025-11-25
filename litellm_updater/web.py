@@ -112,8 +112,11 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/admin/litellm")
-    async def update_litellm(base_url: str = Form(...), api_key: str | None = Form(None)):
-        target = LitellmTarget(base_url=base_url, api_key=api_key or None)
+    async def update_litellm(base_url: str = Form(""), api_key: str | None = Form(None)):
+        target = LitellmTarget(
+            base_url=base_url or None,
+            api_key=api_key or None,
+        )
         update_litellm_target(target)
         return RedirectResponse(url="/admin", status_code=303)
 
@@ -125,8 +128,11 @@ def create_app() -> FastAPI:
     @app.post("/sync")
     async def manual_sync():
         config = load_config()
-        results = await sync_once(config)
-        sync_state.update(results)
+        try:
+            results = await sync_once(config)
+            sync_state.update(results)
+        except Exception:  # pragma: no cover - defensive logging for manual runs
+            logger.exception("Manual sync failed")
         return RedirectResponse(url="/models", status_code=303)
 
     @app.get("/api/sources")

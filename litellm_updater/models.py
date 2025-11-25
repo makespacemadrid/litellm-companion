@@ -30,8 +30,16 @@ class SourceEndpoint(BaseModel):
 class LitellmTarget(BaseModel):
     """Target LiteLLM proxy configuration."""
 
-    base_url: HttpUrl = Field(..., description="LiteLLM base URL")
+    base_url: Optional[HttpUrl] = Field(
+        None, description="LiteLLM base URL. Leave empty to disable synchronization."
+    )
     api_key: Optional[str] = Field(None, description="API key to authenticate LiteLLM admin calls")
+
+    @property
+    def configured(self) -> bool:
+        """Return True when a LiteLLM endpoint has been configured."""
+
+        return self.base_url is not None
 
 
 class ModelMetadata(BaseModel):
@@ -55,7 +63,7 @@ class AppConfig(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    litellm: LitellmTarget
+    litellm: LitellmTarget = Field(default_factory=LitellmTarget)
     sources: List[SourceEndpoint] = Field(default_factory=list)
     sync_interval_seconds: int = Field(
         0,
