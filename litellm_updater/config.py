@@ -32,7 +32,8 @@ def save_config(config: AppConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
     """Persist the app configuration to disk."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config.model_dump(), indent=2))
+    # Use JSON-compatible output so URL fields (HttpUrl) are serialized as strings
+    path.write_text(json.dumps(config.model_dump(mode="json"), indent=2))
 
 
 def add_source(endpoint: SourceEndpoint, path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
