@@ -2,7 +2,9 @@
 name = "litellm-updater"
 version = "0.1.0"
 description = "Synchronize models from Ollama or OpenAI-compatible endpoints into LiteLLM"
-authors = ["LiteLLM Updater Authors <dev@example.com>"]
+authors = [
+  {name = "LiteLLM Updater Authors", email = "dev@example.com"}
+]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
