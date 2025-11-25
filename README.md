@@ -17,9 +17,9 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
 
 2. **Run the server**
    ```bash
-   litellm-updater
+   PORT=8000 litellm-updater
    # or
-   uvicorn litellm_updater.web:create_app
+   PORT=8000 uvicorn litellm_updater.web:create_app --port $PORT
    ```
 
    The server defaults to `http://0.0.0.0:8000`.
@@ -36,7 +36,7 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
 - Build the image directly:
   ```bash
   docker build -t litellm-updater .
-  docker run --rm -p 8000:8000 -v $(pwd)/data:/app/data litellm-updater
+  docker run --rm -e PORT=8000 -p 8000:8000 -v $(pwd)/data:/app/data litellm-updater
   ```
 
 - Or use Docker Compose with the provided `example.env` (copy or override values as needed):
@@ -44,7 +44,7 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
   cp example.env .env
   docker-compose --env-file .env up --build
   ```
-  The compose file binds the UI to `${PORT:-8000}` and mounts the local `data/` directory so configuration persists across restarts.
+  The compose file binds the UI to `${PORT:-8000}` for both the host and container, and mounts the local `data/` directory so configuration persists across restarts.
 
 ## Configuration
 Configuration is stored in `data/config.json` and uses the following shape:

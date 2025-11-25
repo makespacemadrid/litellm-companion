@@ -6,7 +6,7 @@ services:
     env_file:
       - example.env
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8000}:${PORT:-8000}"
     volumes:
       - ./data:/app/data
     command: >
