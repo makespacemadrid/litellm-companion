@@ -226,15 +226,20 @@
           }
 
           const payload = await response.json();
-          const litellmMapping = describeLitellmModel(payload?.litellm_model || {});
+          const litellmModel = payload?.litellm_model || {};
+          const litellmMapping = describeLitellmModel(litellmModel);
+          const mappable = litellmModel?.litellm_mappable || {};
           const rawDetails = payload?.raw || payload || {};
 
           target.textContent = [
             'Datos mapeables a LiteLLM:',
             litellmMapping,
             '',
-            'Modelo normalizado para LiteLLM:',
-            JSON.stringify(payload?.litellm_model || {}, null, 2),
+            'Parámetros LiteLLM completos:',
+            JSON.stringify(mappable, null, 2),
+            '',
+            'Modelo normalizado:',
+            JSON.stringify(litellmModel, null, 2),
             '',
             'Respuesta completa de Ollama:',
             JSON.stringify(rawDetails, null, 2),

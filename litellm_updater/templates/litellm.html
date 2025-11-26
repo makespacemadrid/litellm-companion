@@ -17,12 +17,10 @@
           {% if model.mode %}
           <span class="badge">Mode: {{ model.mode }}</span>
           {% endif %}
-          {% if model.max_tokens %}
-          <span class="badge">Max tokens: {{ "{:,}".format(model.max_tokens) }}</span>
+          {% if model.model_type %}
+          <span class="badge">Type: {{ model.model_type }}</span>
           {% endif %}
-          {% if model.max_input_tokens %}
-          <span class="badge">Max input: {{ "{:,}".format(model.max_input_tokens) }}</span>
-          {% elif model.context_window %}
+          {% if model.context_window %}
           <span class="badge">Ctx: {{ "{:,}".format(model.context_window) }} tokens</span>
           {% endif %}
           {% if model.max_output_tokens %}
@@ -31,59 +29,58 @@
           {% if model.capabilities %}
           <span class="badge">Capabilities: {{ model.capabilities | join(", ") }}</span>
           {% endif %}
-          {% if model.model_type %}
-          <span class="badge">Tipo: {{ model.model_type }}</span>
-          {% endif %}
         </div>
       </div>
       <div class="model-card__body">
-        {% set summary_parts = [] %}
-        {% if model.model_type %}
-        {% set _ = summary_parts.append("Tipo: " ~ model.model_type) %}
-        {% endif %}
-        {% if model.mode %}
-        {% set _ = summary_parts.append("Modo: " ~ model.mode) %}
-        {% endif %}
-        {% if model.capabilities %}
-        {% set _ = summary_parts.append("Capacidades: " ~ (model.capabilities | join(", "))) %}
-        {% endif %}
-        {% set pricing_parts = [] %}
-        {% if mappable.get("input_cost_per_token") %}
-        {% set _ = pricing_parts.append("Input: $" ~ "{:.4f}".format(mappable["input_cost_per_token"] * 1000) ~ "/1K tokens") %}
-        {% endif %}
-        {% if mappable.get("output_cost_per_token") %}
-        {% set _ = pricing_parts.append("Output: $" ~ "{:.4f}".format(mappable["output_cost_per_token"] * 1000) ~ "/1K tokens") %}
-        {% endif %}
-        {% if mappable.get("input_cost_per_second") %}
-        {% set _ = pricing_parts.append("Audio: $" ~ "{:.4f}".format(mappable["input_cost_per_second"] * 60) ~ "/minute") %}
-        {% endif %}
-        {% if mappable.get("output_cost_per_image") %}
-        {% set _ = pricing_parts.append("Image: $" ~ "{:.2f}".format(mappable["output_cost_per_image"]) ~ "/image") %}
-        {% endif %}
-        {% if pricing_parts %}
-        {% set _ = summary_parts.append("Precios (ref. OpenAI): " ~ (pricing_parts | join(", "))) %}
-        {% endif %}
-        {% if summary_parts %}
-        {{ summary_parts | join(" · ") }}
-        {% else %}
-        <span class="muted">Sin información resumida disponible.</span>
-        {% endif %}
+        {%- set summary_items = [] -%}
+        {%- if model.model_type -%}
+          {%- set _ = summary_items.append("Tipo: " ~ model.model_type) -%}
+        {%- endif -%}
+        {%- if model.mode -%}
+          {%- set _ = summary_items.append("Modo: " ~ model.mode) -%}
+        {%- endif -%}
+        {%- if model.context_window -%}
+          {%- set _ = summary_items.append("Contexto: " ~ "{:,}".format(model.context_window) ~ " tokens") -%}
+        {%- endif -%}
+        {%- if model.capabilities -%}
+          {%- set _ = summary_items.append("Capacidades: " ~ (model.capabilities | join(", "))) -%}
+        {%- endif -%}
+        {%- set pricing_items = [] -%}
+        {%- if mappable.get("input_cost_per_token") -%}
+          {%- set _ = pricing_items.append("Input: $" ~ "{:.4f}".format(mappable["input_cost_per_token"] * 1000) ~ "/1K") -%}
+        {%- endif -%}
+        {%- if mappable.get("output_cost_per_token") -%}
+          {%- set _ = pricing_items.append("Output: $" ~ "{:.4f}".format(mappable["output_cost_per_token"] * 1000) ~ "/1K") -%}
+        {%- endif -%}
+        {%- if mappable.get("input_cost_per_second") -%}
+          {%- set _ = pricing_items.append("Audio: $" ~ "{:.4f}".format(mappable["input_cost_per_second"] * 60) ~ "/min") -%}
+        {%- endif -%}
+        {%- if mappable.get("output_cost_per_image") -%}
+          {%- set _ = pricing_items.append("Image: $" ~ "{:.2f}".format(mappable["output_cost_per_image"])) -%}
+        {%- endif -%}
+        {%- if pricing_items -%}
+          {%- set _ = summary_items.append("Precios (ref. OpenAI): " ~ (pricing_items | join(", "))) -%}
+        {%- endif -%}
+        {%- if summary_items -%}
+          {{- summary_items | join(" · ") -}}
+        {%- else -%}
+          <span class="muted">Sin información resumida disponible.</span>
+        {%- endif -%}
       </div>
       <div class="model-card__actions">
-        <button type="button" class="toggle-details" data-target="details-{{ loop.index0 }}">
-          Ver parámetros LiteLLM
+        <button type="button" class="model-details-toggle" data-model-index="{{ loop.index0 }}">
+          Ver detalles
         </button>
       </div>
-      <div class="model-card__details" id="details-{{ loop.index0 }}" hidden>
-        <p class="muted">Parámetros mapeables a la definición de LiteLLM:</p>
-        {% if mappable %}
-        <pre class="model-card__body">{{ mappable | tojson(indent=2) }}</pre>
-        {% else %}
-        <p class="muted">No se encontraron parámetros específicos de LiteLLM en la respuesta.</p>
-        {% endif %}
-        <p class="muted">Respuesta completa del endpoint:</p>
-        <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
-      </div>
+      <details class="model-card__details" hidden>
+        <summary>Detalles extendidos</summary>
+        <div>
+          <p class="muted">Parámetros mapeables a LiteLLM:</p>
+          <pre class="model-card__body">{{ mappable | tojson(indent=2) }}</pre>
+          <p class="muted">Respuesta completa del endpoint:</p>
+          <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
+        </div>
+      </details>
     </li>
     {% endfor %}
   </ul>
@@ -94,19 +91,21 @@
 </section>
 <script>
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.toggle-details').forEach((button) => {
+    document.querySelectorAll('.model-details-toggle').forEach((button) => {
       button.addEventListener('click', () => {
-        const targetId = button.dataset.target;
-        const container = document.getElementById(targetId);
-        if (!container) return;
+        const card = button.closest('.model-card');
+        const details = card.querySelector('.model-card__details');
+        if (!details) return;
 
-        const isHidden = container.hasAttribute('hidden');
+        const isHidden = details.hasAttribute('hidden');
         if (isHidden) {
-          container.removeAttribute('hidden');
-          button.textContent = 'Ocultar información';
+          details.removeAttribute('hidden');
+          details.open = true;
+          button.textContent = 'Ocultar detalles';
         } else {
-          container.setAttribute('hidden', '');
-          button.textContent = 'Ver parámetros LiteLLM';
+          details.setAttribute('hidden', '');
+          details.open = false;
+          button.textContent = 'Ver detalles';
         }
       });
     });

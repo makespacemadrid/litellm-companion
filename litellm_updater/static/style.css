@@ -153,6 +153,10 @@ select {
   gap: 0.35rem;
 }
 
+.model-card__details[hidden] {
+  display: none;
+}
+
 .sources ul {
   list-style: none;
   padding: 0;
