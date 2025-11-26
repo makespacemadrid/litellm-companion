@@ -28,6 +28,12 @@
             <div class="model-card__header">
               <div>{{ model.id }}</div>
               <div class="model-card__meta">
+                {% if model.mode %}
+                <span class="badge">Mode: {{ model.mode }}</span>
+                {% endif %}
+                {% if model.model_type %}
+                <span class="badge">Type: {{ model.model_type }}</span>
+                {% endif %}
                 {% if model.context_window %}
                 <span class="badge">Ctx: {{ "{:,}".format(model.context_window) }} tokens</span>
                 {% endif %}
@@ -118,11 +124,13 @@
     const fetchedAt = sourceModels.fetched_at || lastSynced || '';
     const items = sourceModels.models
       .map((model) => {
+        const mode = model.mode ? `Mode: ${model.mode}` : '';
+        const type = model.model_type ? `Type: ${model.model_type}` : '';
         const ctx = model.context_window ? `Ctx: ${model.context_window.toLocaleString()} tokens` : '';
         const maxOut = model.max_output_tokens ? `Max output: ${model.max_output_tokens.toLocaleString()} tokens` : '';
         const caps = Array.isArray(model.capabilities) && model.capabilities.length > 0 ? `Capabilities: ${model.capabilities.join(', ')}` : '';
         const tagSummary = buildTagSummary(model.raw);
-        const badges = [ctx, maxOut, caps, ...tagSummary]
+        const badges = [mode, type, ctx, maxOut, caps, ...tagSummary]
           .filter(Boolean)
           .map((badge) => `<span class="badge">${badge}</span>`)
           .join('');
