@@ -12,6 +12,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import httpx
+
 from .config import (
     add_source,
     load_config,
@@ -184,6 +186,10 @@ def create_app() -> FastAPI:
         try:
             models = await fetch_source_models(source)
             sync_state.update_source(name, models)
+        except httpx.RequestError as exc:  # pragma: no cover - runtime logging
+            logger.warning(
+                "Failed refreshing models for %s at %s: %s", name, source.base_url, exc
+            )
         except Exception:  # pragma: no cover - runtime logging for diagnostics
             logger.exception("Failed refreshing models for %s", name)
 
