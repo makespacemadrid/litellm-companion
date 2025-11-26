@@ -5,15 +5,24 @@
   {% if litellm_error %}
   <p class="muted">{{ litellm_error }}</p>
   {% else %}
-  <p class="muted">Fetched at {{ fetched_at }}</p>
+  <p class="muted">Fetched at {{ fetched_at or "Unknown" }}</p>
   {% if litellm_models %}
   <ul class="model-cards">
     {% for model in litellm_models %}
+    {% set mappable = model.litellm_mappable %}
     <li class="model-card">
       <div class="model-card__header">
         <div>{{ model.id }}</div>
         <div class="model-card__meta">
-          {% if model.context_window %}
+          {% if model.mode %}
+          <span class="badge">Mode: {{ model.mode }}</span>
+          {% endif %}
+          {% if model.max_tokens %}
+          <span class="badge">Max tokens: {{ "{:,}".format(model.max_tokens) }}</span>
+          {% endif %}
+          {% if model.max_input_tokens %}
+          <span class="badge">Max input: {{ "{:,}".format(model.max_input_tokens) }}</span>
+          {% elif model.context_window %}
           <span class="badge">Ctx: {{ "{:,}".format(model.context_window) }} tokens</span>
           {% endif %}
           {% if model.max_output_tokens %}
@@ -22,9 +31,43 @@
           {% if model.capabilities %}
           <span class="badge">Capabilities: {{ model.capabilities | join(", ") }}</span>
           {% endif %}
+          {% if model.model_type %}
+          <span class="badge">Tipo: {{ model.model_type }}</span>
+          {% endif %}
         </div>
       </div>
-      <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
+      <div class="model-card__body">
+        {% set summary_parts = [] %}
+        {% if model.model_type %}
+        {% set _ = summary_parts.append("Tipo: " ~ model.model_type) %}
+        {% endif %}
+        {% if model.mode %}
+        {% set _ = summary_parts.append("Modo: " ~ model.mode) %}
+        {% endif %}
+        {% if model.capabilities %}
+        {% set _ = summary_parts.append("Capacidades: " ~ (model.capabilities | join(", "))) %}
+        {% endif %}
+        {% if summary_parts %}
+        {{ summary_parts | join(" · ") }}
+        {% else %}
+        <span class="muted">Sin información resumida disponible.</span>
+        {% endif %}
+      </div>
+      <div class="model-card__actions">
+        <button type="button" class="toggle-details" data-target="details-{{ loop.index0 }}">
+          Ver parámetros LiteLLM
+        </button>
+      </div>
+      <div class="model-card__details" id="details-{{ loop.index0 }}" hidden>
+        <p class="muted">Parámetros mapeables a la definición de LiteLLM:</p>
+        {% if mappable %}
+        <pre class="model-card__body">{{ mappable | tojson(indent=2) }}</pre>
+        {% else %}
+        <p class="muted">No se encontraron parámetros específicos de LiteLLM en la respuesta.</p>
+        {% endif %}
+        <p class="muted">Respuesta completa del endpoint:</p>
+        <pre class="model-card__body">{{ model.raw | tojson(indent=2) }}</pre>
+      </div>
     </li>
     {% endfor %}
   </ul>
@@ -33,4 +76,24 @@
   {% endif %}
   {% endif %}
 </section>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.toggle-details').forEach((button) => {
+      button.addEventListener('click', () => {
+        const targetId = button.dataset.target;
+        const container = document.getElementById(targetId);
+        if (!container) return;
+
+        const isHidden = container.hasAttribute('hidden');
+        if (isHidden) {
+          container.removeAttribute('hidden');
+          button.textContent = 'Ocultar información';
+        } else {
+          container.setAttribute('hidden', '');
+          button.textContent = 'Ver parámetros LiteLLM';
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}

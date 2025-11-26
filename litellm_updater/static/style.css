@@ -141,6 +141,18 @@ select {
   border: 1px solid #e2e8f0;
 }
 
+.model-card__actions {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.model-card__details {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
 .sources ul {
   list-style: none;
   padding: 0;

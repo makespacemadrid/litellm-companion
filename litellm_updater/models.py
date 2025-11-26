@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
@@ -85,6 +85,27 @@ def _extract_numeric(raw: Dict, *keys: str) -> int | None:
         found = _search(section)
         if found is not None:
             return found
+
+    return None
+
+
+def _extract_text(raw: Dict, *keys: str) -> str | None:
+    """Return the first non-empty string value found for the given keys."""
+
+    for section in (
+        raw,
+        raw.get("metadata"),
+        raw.get("details"),
+        raw.get("model_info"),
+        raw.get("summary"),
+    ):
+        if not isinstance(section, dict):
+            continue
+
+        for key in keys:
+            value = section.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
 
     return None
 
@@ -190,18 +211,91 @@ def _fallback_context_window(model_id: str, context_window: int | None) -> int |
     return None
 
 
+# Fields recognized by LiteLLM model definitions that are useful to surface in the UI
+LITELLM_MODEL_FIELDS: set[str] = {
+    "aliases",
+    "annotation_cost_per_page",
+    "cache_creation_input_token_cost",
+    "cache_creation_input_token_cost_above_1hr",
+    "cache_creation_input_token_cost_above_200k_tokens",
+    "cache_read_input_token_cost",
+    "cache_read_input_token_cost_above_200k_tokens",
+    "cache_read_input_token_cost_flex",
+    "cache_read_input_token_cost_priority",
+    "citation_cost_per_token",
+    "input_cost_per_audio_token",
+    "input_cost_per_character",
+    "input_cost_per_query",
+    "input_cost_per_second",
+    "input_cost_per_token",
+    "input_cost_per_token_above_128k_tokens",
+    "input_cost_per_token_above_200k_tokens",
+    "input_cost_per_token_batches",
+    "input_cost_per_token_flex",
+    "input_cost_per_token_priority",
+    "key",
+    "litellm_provider",
+    "max_input_tokens",
+    "max_output_tokens",
+    "max_tokens",
+    "mode",
+    "ocr_cost_per_page",
+    "output_cost_per_audio_token",
+    "output_cost_per_character",
+    "output_cost_per_character_above_128k_tokens",
+    "output_cost_per_image",
+    "output_cost_per_image_token",
+    "output_cost_per_reasoning_token",
+    "output_cost_per_second",
+    "output_cost_per_token",
+    "output_cost_per_token_above_128k_tokens",
+    "output_cost_per_token_above_200k_tokens",
+    "output_cost_per_token_batches",
+    "output_cost_per_token_flex",
+    "output_cost_per_token_priority",
+    "output_cost_per_video_per_second",
+    "output_vector_size",
+    "rpm",
+    "search_context_cost_per_query",
+    "source",
+    "supported_openai_params",
+    "supports_assistant_prefill",
+    "supports_audio_input",
+    "supports_audio_output",
+    "supports_computer_use",
+    "supports_embedding_image_input",
+    "supports_function_calling",
+    "supports_native_streaming",
+    "supports_pdf_input",
+    "supports_prompt_caching",
+    "supports_reasoning",
+    "supports_response_schema",
+    "supports_system_messages",
+    "supports_tool_choice",
+    "supports_url_context",
+    "supports_vision",
+    "supports_web_search",
+    "tags",
+    "tiered_pricing",
+    "tpm",
+}
+
+
 class ModelMetadata(BaseModel):
     """Normalized model description."""
 
     id: str
     model_type: str | None = Field(None, description="Model type such as embeddings or completion")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    max_tokens: int | None = Field(None, description="Combined token limit when provided")
+    max_input_tokens: int | None = Field(None, description="Maximum input tokens accepted")
     context_window: int | None = Field(
         None, description="Maximum input context window (tokens) when provided by the source"
     )
     max_output_tokens: int | None = Field(
         None, description="Maximum output tokens supported when provided by the source"
     )
+    mode: str | None = Field(None, description="LiteLLM mode such as chat or embeddings")
     capabilities: List[str] = Field(
         default_factory=list, description="Normalized list of model capabilities or modalities"
     )
@@ -211,8 +305,14 @@ class ModelMetadata(BaseModel):
     def from_raw(cls, model_id: str, raw: Dict) -> "ModelMetadata":
         """Construct a metadata object with normalized context and capability details."""
 
+        max_tokens = _extract_numeric(raw, "max_tokens")
+        max_input_tokens = _extract_numeric(
+            raw, "max_input_tokens", "context_length", "context_window", "max_context"
+        )
         context_window = _extract_numeric(raw, "context_length", "context_window", "max_context")
+        context_window = context_window or max_input_tokens
         max_output_tokens = _extract_numeric(raw, "max_output_tokens", "max_output_length")
+        mode = _extract_text(raw, "mode")
         capabilities = _extract_capabilities(raw)
         model_type = _extract_model_type(model_id, raw, capabilities)
         capabilities = _ensure_capabilities(model_id, capabilities, model_type)
@@ -221,11 +321,40 @@ class ModelMetadata(BaseModel):
         return cls(
             id=model_id,
             model_type=model_type,
+            max_tokens=max_tokens,
+            max_input_tokens=max_input_tokens,
             context_window=context_window,
             max_output_tokens=max_output_tokens,
+            mode=mode,
             capabilities=capabilities,
             raw=raw,
         )
+
+    @property
+    def litellm_mappable(self) -> Dict[str, Any]:
+        """Return LiteLLM-compatible fields from the raw payload, omitting nulls."""
+
+        def _collect(section: Dict | None) -> Dict[str, Any]:
+            if not isinstance(section, dict):
+                return {}
+            return {
+                key: value
+                for key, value in section.items()
+                if key in LITELLM_MODEL_FIELDS and value not in (None, "", [], {})
+            }
+
+        merged: Dict[str, Any] = {}
+        for section in (
+            self.raw.get("model_info"),
+            self.raw.get("details"),
+            self.raw.get("metadata"),
+            self.raw.get("summary"),
+            self.raw,
+        ):
+            for key, value in _collect(section).items():
+                merged.setdefault(key, value)
+
+        return merged
 
 
 class SourceModels(BaseModel):
