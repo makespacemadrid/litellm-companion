@@ -14,7 +14,9 @@ async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint)
 
     url = f"{source.normalized_base_url}/api/tags"
     headers = {"Authorization": f"Bearer {source.api_key}"} if source.api_key else {}
-    response = await client.get(url, headers=headers, timeout=30)
+    timeout = httpx.Timeout(30.0, connect=10.0)
+
+    response = await client.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     payload = response.json()
     models = payload.get("models", [])
