@@ -26,59 +26,58 @@
           {% for model in source_models.models %}
           {% set litellm_fields = model.litellm_fields %}
           <li class="model-card">
+            <!-- Model Header -->
             <div class="model-card__header">
               <div class="model-card__title">{{ model.id }}</div>
-              <div class="model-card__meta">
-                {% if model.litellm_mode %}
-                <span class="badge">Mode: {{ model.litellm_mode }}</span>
+              {% if model.raw.get('details') %}
+              {% set details = model.raw.details %}
+              <div class="model-card__subtitle">
+                {% if details.get('family') %}{{ details.family }}{% endif %}
+                {% if details.get('parameter_size') %}
+                  {% if details.get('family') %} • {% endif %}{{ details.parameter_size }}
                 {% endif %}
-                {% if model.model_type %}
-                <span class="badge">Type: {{ model.model_type }}</span>
-                {% endif %}
-                {% if model.context_window %}
-                <span class="badge">Context: {{ "{:,}".format(model.context_window) }} tokens</span>
-                {% endif %}
-                {% if model.max_output_tokens %}
-                <span class="badge">Max output: {{ "{:,}".format(model.max_output_tokens) }} tokens</span>
+                {% if details.get('quantization_level') %}
+                  {% if details.get('family') or details.get('parameter_size') %} • {% endif %}{{ details.quantization_level }}
                 {% endif %}
               </div>
+              {% endif %}
             </div>
 
-            <div class="model-card__preview">
-              <strong>Capabilities:</strong> {{ model.capabilities | join(", ") if model.capabilities else "No capabilities specified" }}
+            <!-- Model Info -->
+            <div class="model-card__info">
+              <!-- Context Window -->
+              {% if model.context_window or litellm_fields.get('max_input_tokens') %}
+              <span class="badge">
+                Context: {{ "{:,}".format(litellm_fields.get('max_input_tokens', model.context_window)) }}
+              </span>
+              {% endif %}
+
+              <!-- Capabilities -->
+              {% if model.capabilities %}
+              {% for capability in model.capabilities[:3] %}
+              <span class="badge badge-support">{{ capability }}</span>
+              {% endfor %}
+              {% if model.capabilities|length > 3 %}
+              <span class="badge">+{{ model.capabilities|length - 3 }} más</span>
+              {% endif %}
+              {% endif %}
             </div>
 
-            <div class="litellm-fields-summary">
-              <strong>Parámetros LiteLLM:</strong>
-              <div class="litellm-badges">
-                {% if litellm_fields.get('litellm_provider') %}
-                <span class="badge badge-provider">Provider: {{ litellm_fields.litellm_provider }}</span>
-                {% endif %}
-                {% if litellm_fields.get('max_input_tokens') %}
-                <span class="badge">Max Input: {{ "{:,}".format(litellm_fields.max_input_tokens) }} tokens</span>
-                {% endif %}
-                {% if litellm_fields.get('supports_vision') %}
-                <span class="badge badge-support">Vision</span>
-                {% endif %}
-                {% if litellm_fields.get('supports_function_calling') %}
-                <span class="badge badge-support">Function Calling</span>
-                {% endif %}
-                {% if litellm_fields.get('supports_tool_choice') %}
-                <span class="badge badge-support">Tool Choice</span>
-                {% endif %}
-                {% if litellm_fields.get('input_cost_per_token') %}
-                <span class="badge badge-price">Input: ${{ "%.4f"|format(litellm_fields.input_cost_per_token * 1000) }}/1K tokens</span>
-                {% endif %}
-              </div>
-            </div>
-
+            <!-- Actions -->
             <div class="model-card__actions">
-              <button type="button" class="model-more-info" data-source-name="{{ source.name }}" data-model-id="{{ model.id }}">
-                Ver más información
+              <button type="button" class="btn-info model-more-info" data-source-name="{{ source.name }}" data-model-id="{{ model.id }}">
+                Info
+              </button>
+              <button type="button" class="btn-edit model-edit" data-source-name="{{ source.name }}" data-model-id="{{ model.id }}">
+                Edit
+              </button>
+              <button type="button" class="btn-add model-add" data-source-name="{{ source.name }}" data-model-id="{{ model.id }}">
+                Add
               </button>
             </div>
 
-            <details class="model-card__details">
+            <!-- Details (hidden by default) -->
+            <details class="model-card__details" style="grid-column: 1 / -1; margin-top: 0.5rem;">
               <summary style="display: none;"></summary>
               <div class="model-card__details-content">
                 <div class="litellm-fields-preview">Cargando información completa...</div>
@@ -165,41 +164,98 @@
     return Object.keys(cleaned).length > 0 ? cleaned : null;
   }
 
-  function buildLitellmFieldsHTML(litellmModel = {}) {
+  function buildLitellmFieldsHTML(litellmModel = {}, rawModel = {}) {
     if (!litellmModel || Object.keys(litellmModel).length === 0) {
       return '<p class="muted">No se encontraron campos compatibles con LiteLLM.</p>';
     }
 
     const sections = [];
 
-    // Basic Information Section
-    const basicInfo = [];
-    if (litellmModel.litellm_provider) {
-      basicInfo.push(`<span class="badge badge-provider">Provider: ${litellmModel.litellm_provider}</span>`);
-    }
-    if (litellmModel.mode) {
-      basicInfo.push(`<span class="badge badge-mode">Mode: ${litellmModel.mode}</span>`);
-    }
-    if (litellmModel.model_type) {
-      basicInfo.push(`<span class="badge badge-type">Type: ${litellmModel.model_type}</span>`);
-    }
-    if (basicInfo.length > 0) {
-      sections.push(`<div class="litellm-section"><strong>Información básica:</strong><br>${basicInfo.join(' ')}</div>`);
+    // Parameter Mapping Section (Ollama → OpenAI)
+    if (Array.isArray(litellmModel.supported_openai_params) && litellmModel.supported_openai_params.length > 0) {
+      const paramMappings = [];
+      const ollamaParams = rawModel.parameters || '';
+
+      // Show mapped parameters
+      const mappings = {
+        'repeat_penalty': 'frequency_penalty',
+        'temperature': 'temperature',
+        'top_k': 'top_k',
+        'top_p': 'top_p',
+        'stop': 'stop'
+      };
+
+      for (const [ollama, openai] of Object.entries(mappings)) {
+        if (ollamaParams.includes(ollama) && litellmModel.supported_openai_params.includes(openai)) {
+          paramMappings.push(`
+            <div class="param-mapping-item">
+              <span class="param-mapping-item__source">${ollama}</span>
+              <span class="param-mapping-item__arrow">→</span>
+              <span class="param-mapping-item__target">${openai}</span>
+            </div>
+          `);
+        }
+      }
+
+      if (paramMappings.length > 0) {
+        sections.push(`
+          <div class="metadata-section metadata-section--mapping">
+            <div class="metadata-section__title">Mapeo Ollama → OpenAI</div>
+            <div class="param-mapping">
+              ${paramMappings.join('')}
+            </div>
+            <div class="param-mapping-note">
+              Parámetros extraídos desde Ollama y mapeados a formato OpenAI compatible
+            </div>
+          </div>
+        `);
+      }
+
+      // Show all supported OpenAI parameters
+      const params = litellmModel.supported_openai_params.map(p => `<span class="badge badge-param">${p}</span>`).join(' ');
+      sections.push(`
+        <div class="metadata-section">
+          <div class="metadata-section__title">Todos los parámetros soportados</div>
+          ${params}
+        </div>
+      `);
     }
 
     // Token Limits Section
     const tokenLimits = [];
     if (litellmModel.max_input_tokens) {
-      tokenLimits.push(`<span class="badge">Max Input: ${litellmModel.max_input_tokens.toLocaleString()} tokens</span>`);
+      tokenLimits.push(`
+        <div class="token-limit-item">
+          <span class="token-limit-item__label">Entrada (Context):</span>
+          <span class="token-limit-item__value">${litellmModel.max_input_tokens.toLocaleString()}</span>
+        </div>
+      `);
     }
     if (litellmModel.max_output_tokens) {
-      tokenLimits.push(`<span class="badge">Max Output: ${litellmModel.max_output_tokens.toLocaleString()} tokens</span>`);
+      tokenLimits.push(`
+        <div class="token-limit-item">
+          <span class="token-limit-item__label">Salida:</span>
+          <span class="token-limit-item__value">${litellmModel.max_output_tokens.toLocaleString()}</span>
+        </div>
+      `);
     }
     if (litellmModel.max_tokens) {
-      tokenLimits.push(`<span class="badge">Max Total: ${litellmModel.max_tokens.toLocaleString()} tokens</span>`);
+      tokenLimits.push(`
+        <div class="token-limit-item">
+          <span class="token-limit-item__label">Total:</span>
+          <span class="token-limit-item__value">${litellmModel.max_tokens.toLocaleString()}</span>
+        </div>
+      `);
     }
     if (tokenLimits.length > 0) {
-      sections.push(`<div class="litellm-section"><strong>Límites de tokens:</strong><br>${tokenLimits.join(' ')}</div>`);
+      sections.push(`
+        <div class="metadata-section metadata-section--tokens">
+          <div class="metadata-section__title">Límites de Tokens</div>
+          <div class="token-limits">
+            ${tokenLimits.join('')}
+          </div>
+        </div>
+      `);
     }
 
     // Capabilities/Supports Section
@@ -208,38 +264,71 @@
     supportFields.forEach(field => {
       if (litellmModel[field] === true) {
         const label = field.replace('supports_', '').replace(/_/g, ' ');
-        supports.push(`<span class="badge badge-support">${label}</span>`);
+        supports.push(`<div class="capability-item">${label}</div>`);
       }
     });
     if (supports.length > 0) {
-      sections.push(`<div class="litellm-section"><strong>Capacidades soportadas:</strong><br>${supports.join(' ')}</div>`);
+      sections.push(`
+        <div class="metadata-section metadata-section--capabilities">
+          <div class="metadata-section__title">Capacidades Soportadas</div>
+          <div class="capabilities-grid">
+            ${supports.join('')}
+          </div>
+        </div>
+      `);
     }
 
     // Pricing Section
-    const pricing = [];
+    const pricingItems = [];
     if (litellmModel.input_cost_per_token) {
-      pricing.push(`<span class="badge badge-price">Input: $${(litellmModel.input_cost_per_token * 1000).toFixed(4)}/1K tokens</span>`);
+      pricingItems.push(`
+        <div class="pricing-item">
+          <span class="pricing-item__label">Entrada:</span>
+          <span class="pricing-item__value">$${(litellmModel.input_cost_per_token * 1000).toFixed(4)}/1K tokens</span>
+        </div>
+      `);
     }
     if (litellmModel.output_cost_per_token) {
-      pricing.push(`<span class="badge badge-price">Output: $${(litellmModel.output_cost_per_token * 1000).toFixed(4)}/1K tokens</span>`);
+      pricingItems.push(`
+        <div class="pricing-item">
+          <span class="pricing-item__label">Salida:</span>
+          <span class="pricing-item__value">$${(litellmModel.output_cost_per_token * 1000).toFixed(4)}/1K tokens</span>
+        </div>
+      `);
     }
     if (litellmModel.input_cost_per_second) {
-      pricing.push(`<span class="badge badge-price">Audio Input: $${(litellmModel.input_cost_per_second * 60).toFixed(4)}/min</span>`);
+      pricingItems.push(`
+        <div class="pricing-item">
+          <span class="pricing-item__label">Audio Entrada:</span>
+          <span class="pricing-item__value">$${(litellmModel.input_cost_per_second * 60).toFixed(4)}/min</span>
+        </div>
+      `);
     }
     if (litellmModel.output_cost_per_second) {
-      pricing.push(`<span class="badge badge-price">Audio Output: $${(litellmModel.output_cost_per_second * 60).toFixed(4)}/min</span>`);
+      pricingItems.push(`
+        <div class="pricing-item">
+          <span class="pricing-item__label">Audio Salida:</span>
+          <span class="pricing-item__value">$${(litellmModel.output_cost_per_second * 60).toFixed(4)}/min</span>
+        </div>
+      `);
     }
     if (litellmModel.output_cost_per_image) {
-      pricing.push(`<span class="badge badge-price">Image: $${litellmModel.output_cost_per_image.toFixed(2)}/image</span>`);
+      pricingItems.push(`
+        <div class="pricing-item">
+          <span class="pricing-item__label">Imagen:</span>
+          <span class="pricing-item__value">$${litellmModel.output_cost_per_image.toFixed(2)}/imagen</span>
+        </div>
+      `);
     }
-    if (pricing.length > 0) {
-      sections.push(`<div class="litellm-section"><strong>Precios (ref. OpenAI):</strong><br>${pricing.join(' ')}</div>`);
-    }
-
-    // Supported OpenAI Parameters
-    if (Array.isArray(litellmModel.supported_openai_params) && litellmModel.supported_openai_params.length > 0) {
-      const params = litellmModel.supported_openai_params.map(p => `<span class="badge badge-param">${p}</span>`).join(' ');
-      sections.push(`<div class="litellm-section"><strong>Parámetros OpenAI soportados:</strong><br>${params}</div>`);
+    if (pricingItems.length > 0) {
+      sections.push(`
+        <div class="metadata-section metadata-section--pricing">
+          <div class="metadata-section__title">Precios (ref. OpenAI)</div>
+          <div class="pricing-grid">
+            ${pricingItems.join('')}
+          </div>
+        </div>
+      `);
     }
 
     return sections.join('');
@@ -257,53 +346,54 @@
     const fetchedAt = sourceModels.fetched_at || lastSynced || '';
     const items = sourceModels.models
       .map((model) => {
-        // Quick info badges for header
-        const quickBadges = [];
-        if (model.litellm_mode) quickBadges.push(`<span class="badge">Mode: ${model.litellm_mode}</span>`);
-        if (model.model_type) quickBadges.push(`<span class="badge">Type: ${model.model_type}</span>`);
-        if (model.context_window) quickBadges.push(`<span class="badge">Context: ${model.context_window.toLocaleString()} tokens</span>`);
+        // Build subtitle with model details
+        const details = model.raw?.details || {};
+        const subtitleParts = [];
+        if (details.family) subtitleParts.push(details.family);
+        if (details.parameter_size) subtitleParts.push(details.parameter_size);
+        if (details.quantization_level) subtitleParts.push(details.quantization_level);
+        const subtitle = subtitleParts.length > 0 ? `<div class="model-card__subtitle">${subtitleParts.join(' • ')}</div>` : '';
 
-        const capabilities = Array.isArray(model.capabilities) && model.capabilities.length > 0
-          ? model.capabilities.join(', ')
-          : 'No capabilities specified';
+        // Context window badge
+        const contextValue = model.max_input_tokens || model.context_window;
+        const contextBadge = contextValue
+          ? `<span class="badge">Context: ${contextValue.toLocaleString()}</span>`
+          : '';
 
-        // Build LiteLLM params summary (matching server-side template)
-        const litellmBadges = [];
-        if (model.raw?.litellm_provider) {
-          litellmBadges.push(`<span class="badge badge-provider">Provider: ${model.raw.litellm_provider}</span>`);
-        }
-        if (model.max_input_tokens) {
-          litellmBadges.push(`<span class="badge">Max Input: ${model.max_input_tokens.toLocaleString()} tokens</span>`);
-        }
-        // Add support badges from capabilities
-        if (model.capabilities?.includes('vision')) {
-          litellmBadges.push(`<span class="badge badge-support">Vision</span>`);
-        }
-        if (model.capabilities?.some(c => c.toLowerCase().includes('function') || c.toLowerCase().includes('tools'))) {
-          litellmBadges.push(`<span class="badge badge-support">Function Calling</span>`);
+        // Capabilities badges (show first 3)
+        const capabilitiesBadges = [];
+        if (Array.isArray(model.capabilities) && model.capabilities.length > 0) {
+          const capsToShow = model.capabilities.slice(0, 3);
+          capsToShow.forEach(cap => {
+            capabilitiesBadges.push(`<span class="badge badge-support">${cap}</span>`);
+          });
+          if (model.capabilities.length > 3) {
+            capabilitiesBadges.push(`<span class="badge">+${model.capabilities.length - 3} más</span>`);
+          }
         }
 
         return `
           <li class="model-card">
             <div class="model-card__header">
               <div class="model-card__title">${model.id}</div>
-              <div class="model-card__meta">${quickBadges.join(' ')}</div>
+              ${subtitle}
             </div>
-            <div class="model-card__preview">
-              <strong>Capabilities:</strong> ${capabilities}
-            </div>
-            <div class="litellm-fields-summary">
-              <strong>Parámetros LiteLLM:</strong>
-              <div class="litellm-badges">
-                ${litellmBadges.length > 0 ? litellmBadges.join(' ') : '<span class="badge">Procesando...</span>'}
-              </div>
+            <div class="model-card__info">
+              ${contextBadge}
+              ${capabilitiesBadges.join('')}
             </div>
             <div class="model-card__actions">
-              <button type="button" class="model-more-info" data-source-name="${container.dataset.sourceName}" data-model-id="${model.id}">
-                Ver más información
+              <button type="button" class="btn-info model-more-info" data-source-name="${container.dataset.sourceName}" data-model-id="${model.id}">
+                Info
+              </button>
+              <button type="button" class="btn-edit model-edit" data-source-name="${container.dataset.sourceName}" data-model-id="${model.id}">
+                Edit
+              </button>
+              <button type="button" class="btn-add model-add" data-source-name="${container.dataset.sourceName}" data-model-id="${model.id}">
+                Add
               </button>
             </div>
-            <details class="model-card__details">
+            <details class="model-card__details" style="grid-column: 1 / -1; margin-top: 0.5rem;">
               <summary style="display: none;"></summary>
               <div class="model-card__details-content">
                 <div class="litellm-fields-preview">Cargando información completa...</div>
@@ -323,7 +413,7 @@
       <ul class="model-cards">${items}</ul>
     `;
 
-    bindModelDetails(container);
+    bindModelActions(container);
   }
 
   async function loadModels() {
@@ -347,7 +437,8 @@
     await loadModels();
   }
 
-  function bindModelDetails(container) {
+  function bindModelActions(container) {
+    // Info button (existing functionality)
     container.querySelectorAll('.model-more-info').forEach((button) => {
       button.addEventListener('click', async () => {
         const sourceName = button.dataset.sourceName;
@@ -384,7 +475,7 @@
           const rawDetails = payload?.raw || payload || {};
 
           // Build the LiteLLM fields HTML
-          const fieldsHTML = buildLitellmFieldsHTML(litellmModel);
+          const fieldsHTML = buildLitellmFieldsHTML(litellmModel, rawDetails);
           fieldsPreview.innerHTML = `
             <div class="litellm-import-preview">
               <h4>Campos que se importarán a LiteLLM:</h4>
@@ -407,6 +498,34 @@
           console.error('Failed loading model details', error);
           fieldsPreview.innerHTML = '<p class="error">No se pudo cargar la información extendida.</p>';
         }
+      });
+    });
+
+    // Edit button
+    container.querySelectorAll('.model-edit').forEach((button) => {
+      button.addEventListener('click', () => {
+        const sourceName = button.dataset.sourceName;
+        const modelId = button.dataset.modelId;
+
+        // TODO: Implement edit modal/page
+        console.log('Edit model:', sourceName, modelId);
+        alert(`Editar modelo ${modelId} - Pendiente de implementación`);
+      });
+    });
+
+    // Add button
+    container.querySelectorAll('.model-add').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const sourceName = button.dataset.sourceName;
+        const modelId = button.dataset.modelId;
+
+        if (!confirm(`¿Añadir ${modelId} a LiteLLM?`)) {
+          return;
+        }
+
+        // TODO: Implement actual add endpoint
+        console.log('Add model to LiteLLM:', sourceName, modelId);
+        alert(`Añadir ${modelId} a LiteLLM - Pendiente de implementación en el backend`);
       });
     });
   }
