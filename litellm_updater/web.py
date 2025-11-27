@@ -210,7 +210,7 @@ def create_app() -> FastAPI:
                 "source": source_endpoint.name,
                 "model": model,
                 "fetched_at": datetime.now(UTC),
-                "litellm_model": litellm_model,
+                "litellm_model": litellm_model.litellm_mappable,
                 "raw": raw_details,
             }
             await model_details_cache.set(source_endpoint.name, model, payload)
