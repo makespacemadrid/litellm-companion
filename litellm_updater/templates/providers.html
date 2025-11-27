@@ -333,7 +333,7 @@
           const cleanedRawDetails = cleanJSON(rawDetails);
 
           rawDataJson.textContent = [
-            '// Modelo normalizado para LiteLLM (estos campos se sincronizarán):',
+            '// Modelo ya formateado para LiteLLM (campos que se importarán):',
             JSON.stringify(cleanedLitellmModel, null, 2),
             '',
             '// Respuesta completa del provider:',
@@ -355,5 +355,6 @@
   });
 
   document.addEventListener('DOMContentLoaded', loadModels);
+  loadModels();
 </script>
 {% endblock %}
