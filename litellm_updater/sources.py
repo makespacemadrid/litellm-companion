@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-from .models import LitellmTarget, ModelMetadata, SourceEndpoint, SourceModels, SourceType
+from .models import LitellmDestination, ModelMetadata, SourceEndpoint, SourceModels, SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,31 @@ DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 def _make_auth_headers(api_key: str | None) -> dict[str, str]:
     """Create authorization headers if an API key is provided."""
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+def _clean_ollama_payload(payload: dict) -> dict:
+    """Remove extremely large or redundant fields from Ollama responses.
+
+    The `/api/show` endpoint can include tensors and the full modelfile content,
+    which are not required for synchronization and can bloat the stored
+    metadata. This helper returns a sanitized copy while leaving the original
+    payload untouched.
+    """
+
+    if not isinstance(payload, dict):
+        return payload
+
+    cleaned = {**payload}
+    for field in ("tensors", "license", "licence", "modelfile"):
+        cleaned.pop(field, None)
+
+    model_info = cleaned.get("model_info")
+    if isinstance(model_info, dict):
+        model_info = {**model_info}
+        model_info.pop("tensors", None)
+        cleaned["model_info"] = model_info
+
+    return cleaned
 
 
 async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint) -> list[ModelMetadata]:
@@ -108,7 +133,7 @@ async def fetch_litellm_models(client: httpx.AsyncClient, source: SourceEndpoint
     return results
 
 
-async def fetch_litellm_target_models(target: LitellmTarget) -> list[ModelMetadata]:
+async def fetch_litellm_target_models(target: LitellmDestination) -> list[ModelMetadata]:
     """Fetch models directly from the configured LiteLLM endpoint."""
 
     if not target.base_url:
@@ -136,27 +161,4 @@ async def fetch_source_models(source: SourceEndpoint) -> SourceModels:
             raise ValueError(f"Unsupported source type: {source.type}")
 
     return SourceModels(source=source, models=models, fetched_at=datetime.now(UTC))
-def _clean_ollama_payload(payload: dict) -> dict:
-    """Remove extremely large or redundant fields from Ollama responses.
-
-    The `/api/show` endpoint can include tensors and the full modelfile content,
-    which are not required for synchronization and can bloat the stored
-    metadata. This helper returns a sanitized copy while leaving the original
-    payload untouched.
-    """
-
-    if not isinstance(payload, dict):
-        return payload
-
-    cleaned = {**payload}
-    for field in ("tensors", "license", "licence", "modelfile"):
-        cleaned.pop(field, None)
-
-    model_info = cleaned.get("model_info")
-    if isinstance(model_info, dict):
-        model_info = {**model_info}
-        model_info.pop("tensors", None)
-        cleaned["model_info"] = model_info
-
-    return cleaned
 

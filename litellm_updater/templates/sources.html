@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel">
-  <h2>Providers</h2>
+  <h2>Sources</h2>
   {% if config.sources %}
   {% for source in config.sources %}
   <div class="source-block">
@@ -11,7 +11,7 @@
         <p class="muted">{{ human_source_type(source.type) }} — {{ source.base_url }}</p>
       </div>
       <div class="source-actions">
-        <form action="/providers/refresh" method="post" class="refresh-form">
+        <form action="/sources/refresh" method="post" class="refresh-form">
           <input type="hidden" name="name" value="{{ source.name }}" />
           <button type="submit">Refresh list</button>
         </form>
@@ -28,8 +28,8 @@
             <div class="model-card__header">
               <div>{{ model.id }}</div>
               <div class="model-card__meta">
-                {% if model.mode %}
-                <span class="badge">Mode: {{ model.mode }}</span>
+                {% if model.litellm_mode %}
+                <span class="badge">Mode: {{ model.litellm_mode }}</span>
                 {% endif %}
                 {% if model.model_type %}
                 <span class="badge">Type: {{ model.model_type }}</span>
@@ -50,14 +50,14 @@
           {% endfor %}
         </ul>
         {% else %}
-        <p class="muted">No models fetched yet for this provider.</p>
+        <p class="muted">No models fetched yet for this source.</p>
         {% endif %}
       </div>
     </div>
   </div>
   {% endfor %}
   {% else %}
-  <p>No sources configured yet. Add providers in the admin page.</p>
+  <p>No sources configured yet. Add sources in the admin page.</p>
   {% endif %}
 </section>
 <section class="panel">
@@ -208,7 +208,7 @@
     const lastSynced = container.dataset.lastSynced;
 
     if (!sourceModels || !Array.isArray(sourceModels.models) || sourceModels.models.length === 0) {
-      content.innerHTML = '<p class="muted">No models fetched yet for this provider.</p>';
+      content.innerHTML = '<p class="muted">No models fetched yet for this source.</p>';
       return;
     }
 
@@ -217,7 +217,7 @@
       .map((model) => {
         // Quick info badges for header
         const quickBadges = [];
-        if (model.mode) quickBadges.push(`<span class="badge">Mode: ${model.mode}</span>`);
+        if (model.litellm_mode) quickBadges.push(`<span class="badge">Mode: ${model.litellm_mode}</span>`);
         if (model.model_type) quickBadges.push(`<span class="badge">Type: ${model.model_type}</span>`);
         if (model.context_window) quickBadges.push(`<span class="badge">Context: ${model.context_window.toLocaleString()} tokens</span>`);
 
@@ -336,7 +336,7 @@
             '// Modelo ya formateado para LiteLLM (campos que se importarán):',
             JSON.stringify(cleanedLitellmModel, null, 2),
             '',
-            '// Respuesta completa del provider:',
+            '// Respuesta completa del source:',
             JSON.stringify(cleanedRawDetails, null, 2),
           ].join('\n');
         } catch (error) {
