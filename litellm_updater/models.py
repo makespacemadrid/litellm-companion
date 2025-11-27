@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field, model_validator
 
 
 class SourceType(str, Enum):
@@ -470,6 +470,7 @@ class ModelMetadata(BaseModel):
             raw=raw,
         )
 
+    @computed_field
     @property
     def litellm_fields(self) -> dict[str, Any]:
         """Return LiteLLM-compatible fields from the raw payload, omitting nulls."""

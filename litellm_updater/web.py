@@ -281,9 +281,14 @@ def create_app() -> FastAPI:
             await model_details_cache.set(source_endpoint.name, model, payload)
             return payload
         except httpx.HTTPStatusError as exc:
+            logger.error("HTTP error fetching Ollama model details for %s: %s - %s", model, exc.response.status_code, exc.response.text)
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
         except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+            logger.error("Network error fetching Ollama model details for %s: %s", model, exc)
+            raise HTTPException(status_code=502, detail=f"Network error: {str(exc)}")
+        except Exception as exc:
+            logger.exception("Unexpected error fetching Ollama model details for %s", model)
+            raise HTTPException(status_code=500, detail=f"Internal error: {type(exc).__name__}: {str(exc)}")
 
     @app.post("/models/cache")
     async def update_model_cache(payload: CacheUpdateRequest):

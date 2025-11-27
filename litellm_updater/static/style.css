@@ -715,3 +715,103 @@ select {
   min-height: 1.25rem;
   margin: 0;
 }
+
+/* Ollama info section */
+.ollama-info-section {
+  background: white;
+  border-radius: 6px;
+}
+
+.ollama-info-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #0f172a;
+  font-size: 1rem;
+  border-bottom: 2px solid #10b981;
+  padding-bottom: 0.5rem;
+}
+
+.metadata-section--ollama {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: #a7f3d0;
+}
+
+.metadata-section--ollama .metadata-section__title::before {
+  background: #10b981;
+}
+
+.metadata-section--ollama-details {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-color: #bae6fd;
+}
+
+.metadata-section--ollama-details .metadata-section__title::before {
+  background: #0ea5e9;
+}
+
+.metadata-section--ollama-params {
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  border-color: #e9d5ff;
+}
+
+.metadata-section--ollama-params .metadata-section__title::before {
+  background: #a855f7;
+}
+
+/* Info grid for model information */
+.info-grid {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.9rem;
+  gap: 1rem;
+}
+
+.info-label {
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+
+.info-value {
+  color: #0f172a;
+  font-weight: 500;
+  word-break: break-word;
+  text-align: right;
+}
+
+.info-value.code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  color: #475569;
+  background: #f8fafc;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Parameters code block */
+.params-code {
+  margin: 0.5rem 0 0 0;
+  padding: 0.75rem;
+  background: #fafaf9;
+  color: #44403c;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  border: 1px solid #e7e5e4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

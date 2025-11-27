@@ -186,6 +186,84 @@
     return Object.keys(cleaned).length > 0 ? cleaned : null;
   }
 
+  function buildOllamaInfoHTML(rawModel = {}) {
+    if (!rawModel || Object.keys(rawModel).length === 0) {
+      return '';
+    }
+
+    const sections = [];
+
+    // Basic model information
+    const basicInfo = [];
+    if (rawModel.name) {
+      basicInfo.push(`<div class="info-item"><span class="info-label">Nombre:</span> <span class="info-value">${rawModel.name}</span></div>`);
+    }
+    if (rawModel.modified_at) {
+      const modifiedDate = new Date(rawModel.modified_at).toLocaleString();
+      basicInfo.push(`<div class="info-item"><span class="info-label">Modificado:</span> <span class="info-value">${modifiedDate}</span></div>`);
+    }
+    if (rawModel.size) {
+      const sizeLabel = formatBytes(rawModel.size);
+      basicInfo.push(`<div class="info-item"><span class="info-label">Tamaño:</span> <span class="info-value">${sizeLabel}</span></div>`);
+    }
+    if (rawModel.digest) {
+      basicInfo.push(`<div class="info-item"><span class="info-label">Digest:</span> <span class="info-value code">${rawModel.digest}</span></div>`);
+    }
+
+    if (basicInfo.length > 0) {
+      sections.push(`
+        <div class="metadata-section metadata-section--ollama">
+          <div class="metadata-section__title">Información del Modelo (Ollama)</div>
+          <div class="info-grid">
+            ${basicInfo.join('')}
+          </div>
+        </div>
+      `);
+    }
+
+    // Model details (family, parameters, quantization)
+    const details = rawModel.details || {};
+    const detailsInfo = [];
+    if (details.family) {
+      detailsInfo.push(`<div class="info-item"><span class="info-label">Familia:</span> <span class="info-value">${details.family}</span></div>`);
+    }
+    if (Array.isArray(details.families) && details.families.length > 0) {
+      detailsInfo.push(`<div class="info-item"><span class="info-label">Familias:</span> <span class="info-value">${details.families.join(', ')}</span></div>`);
+    }
+    if (details.parameter_size) {
+      detailsInfo.push(`<div class="info-item"><span class="info-label">Parámetros:</span> <span class="info-value">${details.parameter_size}</span></div>`);
+    }
+    if (details.quantization_level) {
+      detailsInfo.push(`<div class="info-item"><span class="info-label">Cuantización:</span> <span class="info-value">${details.quantization_level}</span></div>`);
+    }
+    if (details.format) {
+      detailsInfo.push(`<div class="info-item"><span class="info-label">Formato:</span> <span class="info-value">${details.format}</span></div>`);
+    }
+
+    if (detailsInfo.length > 0) {
+      sections.push(`
+        <div class="metadata-section metadata-section--ollama-details">
+          <div class="metadata-section__title">Detalles Técnicos</div>
+          <div class="info-grid">
+            ${detailsInfo.join('')}
+          </div>
+        </div>
+      `);
+    }
+
+    // Model parameters
+    if (rawModel.parameters) {
+      sections.push(`
+        <div class="metadata-section metadata-section--ollama-params">
+          <div class="metadata-section__title">Parámetros</div>
+          <pre class="params-code">${rawModel.parameters}</pre>
+        </div>
+      `);
+    }
+
+    return sections.join('');
+  }
+
   function buildLitellmFieldsHTML(litellmModel = {}, rawModel = {}) {
     if (!litellmModel || Object.keys(litellmModel).length === 0) {
       return '<p class="muted">No se encontraron campos compatibles con LiteLLM.</p>';
@@ -588,9 +666,19 @@
           const litellmModel = payload?.litellm_model || {};
           const rawDetails = payload?.raw || payload || {};
 
+          // Build the Ollama info HTML (without model_info)
+          const ollamaInfoHTML = buildOllamaInfoHTML(rawDetails);
+
           // Build the LiteLLM fields HTML
           const fieldsHTML = buildLitellmFieldsHTML(litellmModel, rawDetails);
           fieldsPreview.innerHTML = `
+            ${ollamaInfoHTML ? `
+              <div class="ollama-info-section">
+                <h4>Información del Modelo (Ollama):</h4>
+                ${ollamaInfoHTML}
+              </div>
+              <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e0e0e0;">
+            ` : ''}
             <div class="litellm-import-preview">
               <h4>Campos que se importarán a LiteLLM:</h4>
               ${fieldsHTML}
