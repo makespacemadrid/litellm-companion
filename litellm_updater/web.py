@@ -963,6 +963,337 @@ def create_app() -> FastAPI:
     async def api_sources() -> AppConfig:
         return load_config()
 
+    @app.get("/api/providers")
+    async def api_get_providers(session: AsyncSession = Depends(get_session)):
+        """Get all providers from database."""
+        from .crud import get_all_providers
+
+        providers = await get_all_providers(session)
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "base_url": p.base_url,
+                "type": p.type,
+                "prefix": p.prefix,
+                "default_ollama_mode": p.default_ollama_mode,
+                "created_at": p.created_at.isoformat(),
+                "updated_at": p.updated_at.isoformat(),
+            }
+            for p in providers
+        ]
+
+    @app.get("/api/providers/{provider_id}/models")
+    async def api_get_provider_models(
+        provider_id: int,
+        include_orphaned: bool = True,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Get all models for a provider from database."""
+        from .crud import get_models_by_provider, get_provider_by_id
+
+        provider = await get_provider_by_id(session, provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        models = await get_models_by_provider(session, provider_id, include_orphaned)
+
+        # Format models with prefix applied
+        result = []
+        for model in models:
+            # Apply prefix to model name for display
+            display_name = model.model_id
+            if provider.prefix:
+                display_name = f"{provider.prefix}/{model.model_id}"
+
+            result.append(
+                {
+                    "id": model.id,
+                    "model_id": model.model_id,  # Original name without prefix
+                    "display_name": display_name,  # Name with prefix
+                    "model_type": model.model_type,
+                    "context_window": model.context_window,
+                    "max_input_tokens": model.max_input_tokens,
+                    "max_output_tokens": model.max_output_tokens,
+                    "max_tokens": model.max_tokens,
+                    "capabilities": model.capabilities_list,
+                    "litellm_params": model.litellm_params_dict,
+                    "user_params": model.user_params_dict,
+                    "effective_params": model.effective_params,
+                    "ollama_mode": model.ollama_mode,
+                    "is_orphaned": model.is_orphaned,
+                    "orphaned_at": model.orphaned_at.isoformat() if model.orphaned_at else None,
+                    "user_modified": model.user_modified,
+                    "first_seen": model.first_seen.isoformat(),
+                    "last_seen": model.last_seen.isoformat(),
+                }
+            )
+
+        return {
+            "provider": {
+                "id": provider.id,
+                "name": provider.name,
+                "prefix": provider.prefix,
+            },
+            "models": result,
+        }
+
+    @app.get("/api/models/db/{model_id}")
+    async def api_get_model_by_id(model_id: int, session: AsyncSession = Depends(get_session)):
+        """Get a specific model by database ID."""
+        from .crud import get_model_by_id
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        provider = model.provider
+
+        # Apply prefix
+        display_name = model.model_id
+        if provider.prefix:
+            display_name = f"{provider.prefix}/{model.model_id}"
+
+        return {
+            "id": model.id,
+            "model_id": model.model_id,
+            "display_name": display_name,
+            "model_type": model.model_type,
+            "context_window": model.context_window,
+            "max_input_tokens": model.max_input_tokens,
+            "max_output_tokens": model.max_output_tokens,
+            "max_tokens": model.max_tokens,
+            "capabilities": model.capabilities_list,
+            "litellm_params": model.litellm_params_dict,
+            "user_params": model.user_params_dict,
+            "effective_params": model.effective_params,
+            "raw_metadata": model.raw_metadata_dict,
+            "ollama_mode": model.ollama_mode,
+            "is_orphaned": model.is_orphaned,
+            "orphaned_at": model.orphaned_at.isoformat() if model.orphaned_at else None,
+            "user_modified": model.user_modified,
+            "first_seen": model.first_seen.isoformat(),
+            "last_seen": model.last_seen.isoformat(),
+            "provider": {
+                "id": provider.id,
+                "name": provider.name,
+                "prefix": provider.prefix,
+                "base_url": provider.base_url,
+                "type": provider.type,
+            },
+        }
+
+    @app.post("/api/models/db/{model_id}/params")
+    async def api_update_model_params(
+        model_id: int,
+        params: dict,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Update model parameters with user edits."""
+        from .crud import get_model_by_id, update_model_params
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        try:
+            await update_model_params(session, model, params)
+            await session.commit()
+            logger.info("Updated parameters for model %s (ID: %d)", model.model_id, model_id)
+
+            return {
+                "status": "success",
+                "message": f"Parameters updated for model {model.model_id}",
+                "model_id": model_id,
+                "user_params": model.user_params_dict,
+            }
+        except Exception as exc:
+            logger.exception("Failed to update model parameters")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to update parameters: {str(exc)}",
+            )
+
+    @app.delete("/api/models/db/{model_id}/params")
+    async def api_reset_model_params(
+        model_id: int,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Reset model parameters to provider defaults."""
+        from .crud import get_model_by_id, reset_model_params
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        try:
+            await reset_model_params(session, model)
+            await session.commit()
+            logger.info("Reset parameters for model %s (ID: %d)", model.model_id, model_id)
+
+            return {
+                "status": "success",
+                "message": f"Parameters reset to defaults for model {model.model_id}",
+                "model_id": model_id,
+                "litellm_params": model.litellm_params_dict,
+            }
+        except Exception as exc:
+            logger.exception("Failed to reset model parameters")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to reset parameters: {str(exc)}",
+            )
+
+    @app.post("/api/models/db/{model_id}/refresh")
+    async def api_refresh_model(
+        model_id: int,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Refresh a single model from its provider."""
+        from .crud import get_model_by_id, upsert_model
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        provider = model.provider
+
+        # Create SourceEndpoint from provider
+        try:
+            source = SourceEndpoint(
+                name=provider.name,
+                base_url=provider.base_url,
+                type=SourceType(provider.type),
+                api_key=provider.api_key,
+                prefix=provider.prefix,
+                default_ollama_mode=provider.default_ollama_mode,
+            )
+        except Exception as exc:
+            logger.error("Failed to create SourceEndpoint from provider: %s", exc)
+            raise HTTPException(status_code=500, detail="Invalid provider configuration")
+
+        # Fetch models from provider
+        try:
+            source_models = await fetch_source_models(source)
+        except httpx.RequestError as exc:
+            logger.error("Failed to fetch models from provider %s: %s", provider.name, exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to reach provider: {str(exc)}",
+            )
+        except ValueError as exc:
+            logger.error("Invalid response from provider %s: %s", provider.name, exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Invalid provider response: {str(exc)}",
+            )
+
+        # Find the specific model
+        model_metadata = next((m for m in source_models.models if m.id == model.model_id), None)
+        if not model_metadata:
+            # Model no longer exists in provider - mark as orphaned
+            model.is_orphaned = True
+            model.orphaned_at = datetime.now(UTC)
+            await session.commit()
+
+            logger.info("Model %s no longer exists in provider %s, marked as orphaned", model.model_id, provider.name)
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model {model.model_id} not found in provider {provider.name}",
+            )
+
+        # Update the model in database
+        try:
+            await upsert_model(session, provider, model_metadata)
+            await session.commit()
+            logger.info("Refreshed model %s from provider %s", model.model_id, provider.name)
+
+            return {
+                "status": "success",
+                "message": f"Model {model.model_id} refreshed from provider",
+                "model_id": model_id,
+                "is_orphaned": False,
+            }
+        except Exception as exc:
+            logger.exception("Failed to update model in database")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to update model: {str(exc)}",
+            )
+
+    @app.post("/api/models/db/{model_id}/push")
+    async def api_push_model_to_litellm(
+        model_id: int,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Push a model to LiteLLM with its current effective parameters."""
+        from .crud import get_model_by_id
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        config = load_config()
+        if not config.litellm.configured:
+            raise HTTPException(
+                status_code=400,
+                detail="LiteLLM target is not configured",
+            )
+
+        provider = model.provider
+
+        # Get effective parameters (user_params if available, else litellm_params)
+        effective_params = model.effective_params
+
+        # Build model name with prefix
+        model_name = model.model_id
+        if provider.prefix:
+            model_name = f"{provider.prefix}/{model.model_id}"
+
+        # Determine ollama_mode (model override or provider default)
+        ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
+
+        # Build litellm_params for the request
+        litellm_params = {
+            "model": f"ollama/{model.model_id}",  # Original name without prefix
+            "api_base": provider.base_url,
+        }
+
+        # Add ollama_mode to model_info
+        model_info = effective_params.copy()
+        if provider.type == "ollama":
+            model_info["mode"] = ollama_mode
+
+        try:
+            # Push to LiteLLM
+            result = await _add_model_to_litellm(
+                config.litellm.normalized_base_url,
+                config.litellm.api_key,
+                model_name,  # Use prefixed name
+                model_info,
+                provider.base_url,
+            )
+            logger.info("Pushed model %s to LiteLLM", model_name)
+
+            return {
+                "status": "success",
+                "message": f"Model {model_name} pushed to LiteLLM",
+                "model_id": model_id,
+                "litellm_response": result,
+            }
+        except httpx.HTTPStatusError as exc:
+            logger.error("LiteLLM rejected model %s: %s", model_name, exc.response.text)
+            raise HTTPException(
+                status_code=exc.response.status_code,
+                detail=f"LiteLLM rejected the model: {exc.response.text}",
+            )
+        except httpx.RequestError as exc:
+            logger.error("Failed to reach LiteLLM: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to reach LiteLLM: {str(exc)}",
+            )
+
     @app.post("/api/sources")
     async def api_add_source(endpoint: SourceEndpoint):
         """Add a new source via API."""
