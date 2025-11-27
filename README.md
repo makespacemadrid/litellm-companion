@@ -24,9 +24,9 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
 
    The server defaults to `http://0.0.0.0:8000`.
 
-3. **Configure sources and LiteLLM target**
+3. **Configure sources and LiteLLM destination**
    - Navigate to `http://localhost:8000/admin` to set the LiteLLM base URL, update the sync interval, or add/remove sources.
-   - A default `data/config.json` is generated on first run with an empty provider list, automatic sync disabled, and a LiteLLM target at `http://localhost:4000`.
+   - A default `data/config.json` is generated on first run with an empty source list, automatic sync disabled, and a LiteLLM destination at `http://localhost:4000`.
 
 4. **Trigger sync**
    - The scheduler runs automatically only when the interval is greater than zero.
