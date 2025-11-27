@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import httpx
+from pydantic import BaseModel
 
 from .config import (
     add_source as save_source,
@@ -110,8 +111,22 @@ class ModelDetailsCache:
                 for entry_key, _ in sorted_entries[:entries_to_remove]:
                     self._entries.pop(entry_key, None)
 
+    async def update(self, source_name: str, model_id: str, payload: dict) -> dict:
+        """Replace the cached payload while resetting the TTL."""
+
+        await self.set(source_name, model_id, payload)
+        return payload
+
 
 model_details_cache = ModelDetailsCache()
+
+
+class CacheUpdateRequest(BaseModel):
+    """Payload used when overwriting cached model details from the UI."""
+
+    source: str
+    model: str
+    litellm_model: dict
 
 
 @asynccontextmanager
@@ -269,6 +284,36 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.post("/models/cache")
+    async def update_model_cache(payload: CacheUpdateRequest):
+        """Allow overriding cached Ollama details from the UI."""
+
+        config = load_config()
+        source_endpoint = next((item for item in config.sources if item.name == payload.source), None)
+        if not source_endpoint or source_endpoint.type is not SourceType.OLLAMA:
+            raise HTTPException(status_code=404, detail="Source not found or unsupported")
+
+        cached = await model_details_cache.get(source_endpoint.name, payload.model)
+        if not cached:
+            try:
+                raw_details = await fetch_ollama_model_details(source_endpoint, payload.model)
+                litellm_model = ModelMetadata.from_raw(payload.model, raw_details).litellm_fields
+                cached = {
+                    "source": source_endpoint.name,
+                    "model": payload.model,
+                    "fetched_at": datetime.now(UTC),
+                    "litellm_model": litellm_model,
+                    "raw": raw_details,
+                }
+            except httpx.HTTPStatusError as exc:
+                raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+
+        updated_payload = {**cached, "litellm_model": payload.litellm_model, "fetched_at": datetime.now(UTC)}
+        await model_details_cache.update(source_endpoint.name, payload.model, updated_payload)
+        return updated_payload
 
     @app.get("/admin", response_class=HTMLResponse)
     async def admin(request: Request):
