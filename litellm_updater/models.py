@@ -211,16 +211,11 @@ def _ensure_capabilities(model_id: str, capabilities: list[str], model_type: str
     normalized = list(capabilities)
     lowered_id = model_id.lower()
 
-    if not normalized:
-        if "vision" in lowered_id:
-            normalized.append("vision")
-        if "embed" in lowered_id:
-            normalized.append("embedding")
-        if not normalized:
-            normalized.append("completion")
-
-    if model_type and model_type not in normalized:
-        normalized.append(model_type)
+    # Only add vision if it's explicitly in the model ID
+    if not normalized and "vision" in lowered_id:
+        normalized.append("vision")
+    # Don't auto-add "completion" or model_type to capabilities
+    # Let them be empty if not provided
 
     return _dedupe(normalized)
 
