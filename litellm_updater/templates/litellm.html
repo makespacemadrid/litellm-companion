@@ -50,20 +50,23 @@
       <!-- Model Info -->
       <div class="model-card__info">
         <!-- Context Window -->
-        {% if model.max_input_tokens or model.context_window %}
+        {% set context_value = model.max_input_tokens or model.context_window %}
+        {% if context_value %}
         <span class="badge">
-          Context: {{ "{:,}".format(model.max_input_tokens or model.context_window) }}
+          Context: {{ "{:,}".format(context_value) }}
         </span>
         {% endif %}
 
-        <!-- Capabilities -->
-        {% if model.capabilities %}
+        <!-- Capabilities (only actual capabilities, not model types) -->
+        {% if model.capabilities and model.capabilities|length > 0 %}
         {% for capability in model.capabilities[:3] %}
         <span class="badge badge-support">{{ capability }}</span>
         {% endfor %}
         {% if model.capabilities|length > 3 %}
         <span class="badge">+{{ model.capabilities|length - 3 }} más</span>
         {% endif %}
+        {% else %}
+        <span class="badge muted">No capabilities specified</span>
         {% endif %}
       </div>
 

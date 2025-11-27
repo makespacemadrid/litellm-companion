@@ -46,20 +46,23 @@
             <!-- Model Info -->
             <div class="model-card__info">
               <!-- Context Window -->
-              {% if model.context_window or litellm_fields.get('max_input_tokens') %}
+              {% set context_value = litellm_fields.get('max_input_tokens') or model.max_input_tokens or model.context_window %}
+              {% if context_value %}
               <span class="badge">
-                Context: {{ "{:,}".format(litellm_fields.get('max_input_tokens', model.context_window)) }}
+                Context: {{ "{:,}".format(context_value) }}
               </span>
               {% endif %}
 
-              <!-- Capabilities -->
-              {% if model.capabilities %}
+              <!-- Capabilities (only actual capabilities, not model types) -->
+              {% if model.capabilities and model.capabilities|length > 0 %}
               {% for capability in model.capabilities[:3] %}
               <span class="badge badge-support">{{ capability }}</span>
               {% endfor %}
               {% if model.capabilities|length > 3 %}
               <span class="badge">+{{ model.capabilities|length - 3 }} más</span>
               {% endif %}
+              {% else %}
+              <span class="badge muted">No capabilities specified</span>
               {% endif %}
             </div>
 
@@ -360,7 +363,7 @@
           ? `<span class="badge">Context: ${contextValue.toLocaleString()}</span>`
           : '';
 
-        // Capabilities badges (show first 3)
+        // Capabilities badges (show first 3, only actual capabilities)
         const capabilitiesBadges = [];
         if (Array.isArray(model.capabilities) && model.capabilities.length > 0) {
           const capsToShow = model.capabilities.slice(0, 3);
@@ -370,6 +373,8 @@
           if (model.capabilities.length > 3) {
             capabilitiesBadges.push(`<span class="badge">+${model.capabilities.length - 3} más</span>`);
           }
+        } else {
+          capabilitiesBadges.push(`<span class="badge muted">No capabilities specified</span>`);
         }
 
         return `
