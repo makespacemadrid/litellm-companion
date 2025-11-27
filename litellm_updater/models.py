@@ -249,9 +249,20 @@ def _ensure_capabilities(model_id: str, capabilities: list[str], model_type: str
         if "audio" not in [c.lower() for c in normalized]:
             normalized.append("audio")
 
-    # If still no capabilities and it's a chat/completion model, add that
-    if not normalized and model_type and model_type.lower() == "completion":
-        normalized.append("completion")
+    # Infer embedding capability from model name or type
+    embedding_keywords = ["embed", "embedding"]
+    if (
+        any(keyword in lowered_id for keyword in embedding_keywords)
+        or (model_type and any(keyword in model_type.lower() for keyword in embedding_keywords))
+    ):
+        if "embedding" not in [c.lower() for c in normalized]:
+            normalized.append("embedding")
+
+    # If still no capabilities, default to chat for non-embedding models
+    if not normalized:
+        # Don't add chat/completion if it looks like an embedding model
+        if not any(keyword in lowered_id for keyword in embedding_keywords):
+            normalized.append("chat")
 
     return _dedupe(normalized)
 
