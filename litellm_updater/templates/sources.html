@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel">
-  <h2>Providers</h2>
+  <h2>Sources</h2>
   {% if config.sources %}
   {% for source in config.sources %}
   <div class="source-block">
@@ -11,7 +11,7 @@
         <p class="muted">{{ human_source_type(source.type) }} — {{ source.base_url }}</p>
       </div>
       <div class="source-actions">
-        <form action="/providers/refresh" method="post" class="refresh-form">
+        <form action="/sources/refresh" method="post" class="refresh-form">
           <input type="hidden" name="name" value="{{ source.name }}" />
           <button type="submit">Refresh list</button>
         </form>
@@ -24,40 +24,82 @@
         <p class="muted">Last fetched at {{ source_models.fetched_at or last_synced }}</p>
         <ul class="model-cards">
           {% for model in source_models.models %}
+          {% set litellm_fields = model.litellm_fields %}
           <li class="model-card">
             <div class="model-card__header">
-              <div>{{ model.id }}</div>
+              <div class="model-card__title">{{ model.id }}</div>
               <div class="model-card__meta">
-                {% if model.mode %}
-                <span class="badge">Mode: {{ model.mode }}</span>
+                {% if model.litellm_mode %}
+                <span class="badge">Mode: {{ model.litellm_mode }}</span>
                 {% endif %}
                 {% if model.model_type %}
                 <span class="badge">Type: {{ model.model_type }}</span>
                 {% endif %}
                 {% if model.context_window %}
-                <span class="badge">Ctx: {{ "{:,}".format(model.context_window) }} tokens</span>
+                <span class="badge">Context: {{ "{:,}".format(model.context_window) }} tokens</span>
                 {% endif %}
                 {% if model.max_output_tokens %}
                 <span class="badge">Max output: {{ "{:,}".format(model.max_output_tokens) }} tokens</span>
                 {% endif %}
-                {% if model.capabilities %}
-                <span class="badge">Capabilities: {{ model.capabilities | join(", ") }}</span>
+              </div>
+            </div>
+
+            <div class="model-card__preview">
+              <strong>Capabilities:</strong> {{ model.capabilities | join(", ") if model.capabilities else "No capabilities specified" }}
+            </div>
+
+            <div class="litellm-fields-summary">
+              <strong>Parámetros LiteLLM:</strong>
+              <div class="litellm-badges">
+                {% if litellm_fields.get('litellm_provider') %}
+                <span class="badge badge-provider">Provider: {{ litellm_fields.litellm_provider }}</span>
+                {% endif %}
+                {% if litellm_fields.get('max_input_tokens') %}
+                <span class="badge">Max Input: {{ "{:,}".format(litellm_fields.max_input_tokens) }} tokens</span>
+                {% endif %}
+                {% if litellm_fields.get('supports_vision') %}
+                <span class="badge badge-support">Vision</span>
+                {% endif %}
+                {% if litellm_fields.get('supports_function_calling') %}
+                <span class="badge badge-support">Function Calling</span>
+                {% endif %}
+                {% if litellm_fields.get('supports_tool_choice') %}
+                <span class="badge badge-support">Tool Choice</span>
+                {% endif %}
+                {% if litellm_fields.get('input_cost_per_token') %}
+                <span class="badge badge-price">Input: ${{ "%.4f"|format(litellm_fields.input_cost_per_token * 1000) }}/1K tokens</span>
                 {% endif %}
               </div>
             </div>
-            <div class="model-card__body">Metadata fetched from tags.</div>
+
+            <div class="model-card__actions">
+              <button type="button" class="model-more-info" data-source-name="{{ source.name }}" data-model-id="{{ model.id }}">
+                Ver más información
+              </button>
+            </div>
+
+            <details class="model-card__details">
+              <summary style="display: none;"></summary>
+              <div class="model-card__details-content">
+                <div class="litellm-fields-preview">Cargando información completa...</div>
+                <details class="raw-data-toggle">
+                  <summary>Ver datos completos (JSON)</summary>
+                  <pre class="raw-data-json"></pre>
+                </details>
+              </div>
+            </details>
           </li>
           {% endfor %}
         </ul>
         {% else %}
-        <p class="muted">No models fetched yet for this provider.</p>
+        <p class="muted">No models fetched yet for this source.</p>
         {% endif %}
       </div>
     </div>
   </div>
   {% endfor %}
   {% else %}
-  <p>No sources configured yet. Add providers in the admin page.</p>
+  <p>No sources configured yet. Add sources in the admin page.</p>
   {% endif %}
 </section>
 <section class="panel">
@@ -208,7 +250,7 @@
     const lastSynced = container.dataset.lastSynced;
 
     if (!sourceModels || !Array.isArray(sourceModels.models) || sourceModels.models.length === 0) {
-      content.innerHTML = '<p class="muted">No models fetched yet for this provider.</p>';
+      content.innerHTML = '<p class="muted">No models fetched yet for this source.</p>';
       return;
     }
 
@@ -217,13 +259,29 @@
       .map((model) => {
         // Quick info badges for header
         const quickBadges = [];
-        if (model.mode) quickBadges.push(`<span class="badge">Mode: ${model.mode}</span>`);
+        if (model.litellm_mode) quickBadges.push(`<span class="badge">Mode: ${model.litellm_mode}</span>`);
         if (model.model_type) quickBadges.push(`<span class="badge">Type: ${model.model_type}</span>`);
         if (model.context_window) quickBadges.push(`<span class="badge">Context: ${model.context_window.toLocaleString()} tokens</span>`);
 
         const capabilities = Array.isArray(model.capabilities) && model.capabilities.length > 0
           ? model.capabilities.join(', ')
           : 'No capabilities specified';
+
+        // Build LiteLLM params summary (matching server-side template)
+        const litellmBadges = [];
+        if (model.raw?.litellm_provider) {
+          litellmBadges.push(`<span class="badge badge-provider">Provider: ${model.raw.litellm_provider}</span>`);
+        }
+        if (model.max_input_tokens) {
+          litellmBadges.push(`<span class="badge">Max Input: ${model.max_input_tokens.toLocaleString()} tokens</span>`);
+        }
+        // Add support badges from capabilities
+        if (model.capabilities?.includes('vision')) {
+          litellmBadges.push(`<span class="badge badge-support">Vision</span>`);
+        }
+        if (model.capabilities?.some(c => c.toLowerCase().includes('function') || c.toLowerCase().includes('tools'))) {
+          litellmBadges.push(`<span class="badge badge-support">Function Calling</span>`);
+        }
 
         return `
           <li class="model-card">
@@ -232,17 +290,23 @@
               <div class="model-card__meta">${quickBadges.join(' ')}</div>
             </div>
             <div class="model-card__preview">
-              <strong>Capacidades:</strong> ${capabilities}
+              <strong>Capabilities:</strong> ${capabilities}
+            </div>
+            <div class="litellm-fields-summary">
+              <strong>Parámetros LiteLLM:</strong>
+              <div class="litellm-badges">
+                ${litellmBadges.length > 0 ? litellmBadges.join(' ') : '<span class="badge">Procesando...</span>'}
+              </div>
             </div>
             <div class="model-card__actions">
               <button type="button" class="model-more-info" data-source-name="${container.dataset.sourceName}" data-model-id="${model.id}">
-                Ver campos para LiteLLM
+                Ver más información
               </button>
             </div>
             <details class="model-card__details">
               <summary style="display: none;"></summary>
               <div class="model-card__details-content">
-                <div class="litellm-fields-preview">Cargando...</div>
+                <div class="litellm-fields-preview">Cargando información completa...</div>
                 <details class="raw-data-toggle">
                   <summary>Ver datos completos (JSON)</summary>
                   <pre class="raw-data-json"></pre>
@@ -297,13 +361,13 @@
         const isOpen = details.open;
         if (isOpen) {
           details.open = false;
-          button.textContent = 'Ver campos para LiteLLM';
+          button.textContent = 'Ver más información';
           return;
         }
 
         details.open = true;
-        button.textContent = 'Ocultar campos';
-        fieldsPreview.innerHTML = '<p class="muted">Cargando información...</p>';
+        button.textContent = 'Ocultar información';
+        fieldsPreview.innerHTML = '<p class="muted">Cargando información completa...</p>';
 
         try {
           const params = new URLSearchParams({ source: sourceName, model: modelId });
@@ -336,7 +400,7 @@
             '// Modelo ya formateado para LiteLLM (campos que se importarán):',
             JSON.stringify(cleanedLitellmModel, null, 2),
             '',
-            '// Respuesta completa del provider:',
+            '// Respuesta completa del source:',
             JSON.stringify(cleanedRawDetails, null, 2),
           ].join('\n');
         } catch (error) {

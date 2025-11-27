@@ -14,15 +14,15 @@ from fastapi.templating import Jinja2Templates
 import httpx
 
 from .config import (
-    add_source,
+    add_source as save_source,
     load_config,
-    remove_source,
+    remove_source as delete_source_from_config,
     set_sync_interval,
     update_litellm_target,
 )
 from .models import (
     AppConfig,
-    LitellmTarget,
+    LitellmDestination,
     ModelMetadata,
     SourceEndpoint,
     SourceModels,
@@ -36,6 +36,11 @@ from .sources import (
 from .sync import start_scheduler, sync_once
 
 logger = logging.getLogger(__name__)
+
+
+def _human_source_type(source_type: SourceType) -> str:
+    """Helper function for template compatibility."""
+    return source_type.display_name()
 
 
 class SyncState:
@@ -108,10 +113,6 @@ class ModelDetailsCache:
 model_details_cache = ModelDetailsCache()
 
 
-def _human_source_type(source_type: SourceType) -> str:
-    return "Ollama" if source_type is SourceType.OLLAMA else "LiteLLM / OpenAI"
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(start_scheduler(load_config, sync_state.update))
@@ -148,13 +149,13 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.get("/providers", response_class=HTMLResponse)
-    async def providers_page(request: Request):
+    @app.get("/sources", response_class=HTMLResponse)
+    async def sources(request: Request):
         config = load_config()
         models = await sync_state.get_models()
         last_synced = await sync_state.get_last_synced()
         return templates.TemplateResponse(
-            "providers.html",
+            "sources.html",
             {
                 "request": request,
                 "config": config,
@@ -165,11 +166,11 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/models")
-    async def models_endpoint(request: Request, source: str | None = None):
+    async def models_redirect(request: Request, source: str | None = None):
         """Expose the latest synced models or redirect browsers to the UI.
 
         When the request prefers HTML (e.g. a user navigating directly in a
-        browser), redirect to the providers page to keep the existing UX. API
+        browser), redirect to the sources page to keep the existing UX. API
         consumers can request JSON to retrieve the in-memory models, optionally
         filtered by source name.
         """
@@ -178,7 +179,7 @@ def create_app() -> FastAPI:
         prefers_json = "application/json" in accepts or "*/*" == accepts
 
         if not prefers_json:
-            return RedirectResponse(url="/providers", status_code=308)
+            return RedirectResponse(url="/sources", status_code=308)
 
         models = await sync_state.get_models()
         if source:
@@ -210,7 +211,7 @@ def create_app() -> FastAPI:
                 "source": source_endpoint.name,
                 "model": model,
                 "fetched_at": datetime.now(UTC),
-                "litellm_model": litellm_model.litellm_mappable,
+                "litellm_model": litellm_model.litellm_fields,
                 "raw": raw_details,
             }
             await model_details_cache.set(source_endpoint.name, model, payload)
@@ -221,7 +222,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=502, detail=str(exc))
 
     @app.get("/admin", response_class=HTMLResponse)
-    async def admin_page(request: Request):
+    async def admin(request: Request):
         config = load_config()
         return templates.TemplateResponse(
             "admin.html",
@@ -229,7 +230,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/litellm", response_class=HTMLResponse)
-    async def litellm_page(request: Request):
+    async def litellm(request: Request):
         config = load_config()
         litellm_models = []
         litellm_error: str | None = None
@@ -260,24 +261,24 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/admin/sources")
-    async def add_source_form(
+    async def add_source(
         name: str = Form(...),
         base_url: str = Form(...),
         source_type: SourceType = Form(...),
         api_key: str | None = Form(None),
     ):
         endpoint = SourceEndpoint(name=name, base_url=base_url, type=source_type, api_key=api_key or None)
-        add_source(endpoint)
+        save_source(endpoint)
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/admin/sources/delete")
-    async def delete_source_form(name: str = Form(...)):
-        remove_source(name)
+    async def delete_source(name: str = Form(...)):
+        delete_source_from_config(name)
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/admin/litellm")
     async def update_litellm(base_url: str = Form(""), api_key: str | None = Form(None)):
-        target = LitellmTarget(
+        target = LitellmDestination(
             base_url=base_url or None,
             api_key=api_key or None,
         )
@@ -290,7 +291,7 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/sync")
-    async def manual_sync():
+    async def run_sync():
         config = load_config()
         try:
             results = await sync_once(config)
@@ -299,15 +300,15 @@ def create_app() -> FastAPI:
             logger.warning("Manual sync failed: %s", exc)
         except Exception:  # pragma: no cover - unexpected errors
             logger.exception("Unexpected error during manual sync")
-        return RedirectResponse(url="/providers", status_code=303)
+        return RedirectResponse(url="/sources", status_code=303)
 
-    @app.post("/providers/refresh")
-    async def refresh_provider_models(name: str = Form(...)):
+    @app.post("/sources/refresh")
+    async def refresh_source(name: str = Form(...)):
         config = load_config()
         source = next((source for source in config.sources if source.name == name), None)
         if not source:
             logger.warning("Attempted to refresh unknown source %s", name)
-            return RedirectResponse(url="/providers", status_code=303)
+            return RedirectResponse(url="/sources", status_code=303)
 
         try:
             models = await fetch_source_models(source)
@@ -321,7 +322,7 @@ def create_app() -> FastAPI:
         except Exception:  # pragma: no cover - unexpected errors
             logger.exception("Unexpected error refreshing models for %s", name)
 
-        return RedirectResponse(url="/providers", status_code=303)
+        return RedirectResponse(url="/sources", status_code=303)
 
     @app.get("/api/sources")
     async def api_sources() -> AppConfig:

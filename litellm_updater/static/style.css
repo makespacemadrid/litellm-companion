@@ -202,6 +202,29 @@ select {
   color: #475569;
 }
 
+/* LiteLLM fields summary section */
+.litellm-fields-summary {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  border: 1px solid #bae6fd;
+  border-left: 3px solid #0ea5e9;
+  border-radius: 6px;
+}
+
+.litellm-fields-summary strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #0c4a6e;
+  font-size: 0.95rem;
+}
+
+.litellm-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 /* LiteLLM fields visualization */
 .litellm-import-preview {
   background: white;

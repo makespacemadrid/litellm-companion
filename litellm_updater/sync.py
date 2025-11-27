@@ -59,7 +59,7 @@ async def sync_once(config: AppConfig) -> dict[str, SourceModels]:
             for model in source_models.models:
                 try:
                     await _register_model_with_litellm(
-                        client, config.litellm.base_url, config.litellm.api_key, model
+                        client, config.litellm.normalized_base_url, config.litellm.api_key, model
                     )
                 except httpx.HTTPStatusError as exc:  # pragma: no cover - runtime logging
                     logger.warning(
@@ -67,7 +67,7 @@ async def sync_once(config: AppConfig) -> dict[str, SourceModels]:
                     )
                 except httpx.RequestError as exc:  # pragma: no cover - runtime logging
                     logger.warning(
-                        "Failed reaching LiteLLM at %s: %s", config.litellm.base_url, exc
+                        "Failed reaching LiteLLM at %s: %s", config.litellm.normalized_base_url, exc
                     )
                 except Exception:  # pragma: no cover - unexpected errors
                     logger.exception("Unexpected error registering model %s from %s", model.id, source.name)

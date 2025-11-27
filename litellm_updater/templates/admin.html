@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel">
-  <h2>LiteLLM Target</h2>
+  <h2>LiteLLM Destination</h2>
   <form action="/admin/litellm" method="post">
     <label>Base URL <input type="text" name="base_url" value="{{ config.litellm.base_url or '' }}" /></label>
     <label>API Key <input type="text" name="api_key" value="{{ config.litellm.api_key or '' }}" /></label>
     <p class="muted">Leave Base URL empty to disable LiteLLM synchronization.</p>
-    <button type="submit">Save target</button>
+    <button type="submit">Save destination</button>
   </form>
 </section>
 

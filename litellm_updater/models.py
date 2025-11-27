@@ -15,6 +15,10 @@ class SourceType(str, Enum):
     OLLAMA = "ollama"
     LITELLM = "litellm"
 
+    def display_name(self) -> str:
+        """Return human-readable name for UI display."""
+        return "Ollama" if self is SourceType.OLLAMA else "LiteLLM / OpenAI"
+
 
 class SourceEndpoint(BaseModel):
     """Configuration for a single upstream source server."""
@@ -34,8 +38,8 @@ class SourceEndpoint(BaseModel):
         return str(self.base_url).rstrip("/")
 
 
-class LitellmTarget(BaseModel):
-    """Target LiteLLM proxy configuration."""
+class LitellmDestination(BaseModel):
+    """Destination LiteLLM proxy configuration."""
 
     base_url: HttpUrl | None = Field(
         None, description="LiteLLM base URL. Leave empty to disable synchronization."
@@ -361,7 +365,7 @@ class ModelMetadata(BaseModel):
     max_output_tokens: int | None = Field(
         None, description="Maximum output tokens supported when provided by the source"
     )
-    mode: str | None = Field(None, description="LiteLLM mode such as chat or embeddings")
+    litellm_mode: str | None = Field(None, description="LiteLLM mode such as chat or embeddings")
     capabilities: list[str] = Field(
         default_factory=list, description="Normalized list of model capabilities or modalities"
     )
@@ -378,7 +382,7 @@ class ModelMetadata(BaseModel):
         context_window = _extract_numeric(raw, "context_length", "context_window", "max_context")
         context_window = context_window or max_input_tokens
         max_output_tokens = _extract_numeric(raw, "max_output_tokens", "max_output_length")
-        mode = _extract_text(raw, "mode")
+        litellm_mode = _extract_text(raw, "mode")
         capabilities = _extract_capabilities(raw)
         model_type = _extract_model_type(model_id, raw, capabilities)
         capabilities = _ensure_capabilities(model_id, capabilities, model_type)
@@ -391,13 +395,13 @@ class ModelMetadata(BaseModel):
             max_input_tokens=max_input_tokens,
             context_window=context_window,
             max_output_tokens=max_output_tokens,
-            mode=mode,
+            litellm_mode=litellm_mode,
             capabilities=capabilities,
             raw=raw,
         )
 
     @property
-    def litellm_mappable(self) -> dict[str, Any]:
+    def litellm_fields(self) -> dict[str, Any]:
         """Return LiteLLM-compatible fields from the raw payload, omitting nulls."""
 
         def _collect(section: dict | None) -> dict[str, Any]:
@@ -421,8 +425,8 @@ class ModelMetadata(BaseModel):
                 merged.setdefault(key, value)
 
         # Add computed fields from normalized metadata
-        if self.mode:
-            merged["mode"] = self.mode
+        if self.litellm_mode:
+            merged["mode"] = self.litellm_mode
         if self.max_tokens:
             merged["max_tokens"] = self.max_tokens
         if self.max_input_tokens:
@@ -437,11 +441,11 @@ class ModelMetadata(BaseModel):
         merged.update(supports_fields)
 
         # Add default pricing
-        pricing = _get_default_pricing(self.model_type, self.mode)
+        pricing = _get_default_pricing(self.model_type, self.litellm_mode)
         merged.update(pricing)
 
         # Map supported OpenAI parameters from Ollama parameters
-        supported_params = self._extract_supported_openai_params()
+        supported_params = self._get_openai_compatible_params()
         if supported_params:
             merged["supported_openai_params"] = supported_params
 
@@ -451,8 +455,8 @@ class ModelMetadata(BaseModel):
 
         return merged
 
-    def _extract_supported_openai_params(self) -> list[str]:
-        """Extract supported OpenAI parameters from Ollama's parameters field."""
+    def _get_openai_compatible_params(self) -> list[str]:
+        """Extract and map supported OpenAI-compatible parameters from model metadata."""
 
         params_set = set()
 
@@ -487,7 +491,7 @@ class ModelMetadata(BaseModel):
                 params_set.add("stop")
 
         # Common parameters that most chat models support
-        if self.mode == "chat" or "completion" in (self.capabilities or []):
+        if self.litellm_mode == "chat" or "completion" in (self.capabilities or []):
             params_set.update(["max_tokens", "stream", "n", "seed"])
 
         # Add tool support if capabilities indicate it
@@ -512,7 +516,7 @@ class AppConfig(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
-    litellm: LitellmTarget = Field(default_factory=LitellmTarget)
+    litellm: LitellmDestination = Field(default_factory=LitellmDestination)
     sources: list[SourceEndpoint] = Field(default_factory=list)
     sync_interval_seconds: int = Field(
         0,

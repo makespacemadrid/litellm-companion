@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .models import AppConfig, LitellmTarget, SourceEndpoint, SourceType
+from .models import AppConfig, LitellmDestination, SourceEndpoint, SourceType
 
 DEFAULT_CONFIG_PATH = Path("data/config.json")
 
@@ -70,7 +70,7 @@ def remove_source(name: str, path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     return config
 
 
-def update_litellm_target(target: LitellmTarget, path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
+def update_litellm_target(target: LitellmDestination, path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     """Update LiteLLM target and persist configuration."""
 
     config = load_config(path)
