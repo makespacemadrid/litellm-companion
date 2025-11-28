@@ -1,44 +1,148 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel">
-  <h2>Providers & Models (Database)</h2>
-  <p class="muted">Models are loaded from the database. Orphaned models (no longer in provider) are shown in <span style="color: #d32f2f;">red</span>.</p>
+  <h2>Providers & Models</h2>
+  <p class="muted">
+    Models are loaded from the database.
+    <span style="color: #d32f2f;">Red</span> = Orphaned (no longer in provider).
+    <span style="color: #1976d2;">Blue</span> = Modified (database differs from provider).
+  </p>
 
-  <div id="providers-container">Loading providers...</div>
+  <!-- Global Action Buttons -->
+  <div class="global-actions">
+    <button id="sync-all-btn" class="btn-primary" onclick="syncAllProviders()">Sync All Providers</button>
+    <button id="sync-litellm-btn" class="btn-success" onclick="syncToLiteLLM()">Push All to LiteLLM</button>
+  </div>
+
+  <!-- Provider Tabs -->
+  <div id="provider-tabs" class="tabs-container">
+    <div class="tabs-header" id="tabs-header">Loading providers...</div>
+    <div class="tabs-content" id="tabs-content"></div>
+  </div>
 </section>
 
-<section class="panel">
-  <form action="/sync" method="post">
-    <button type="submit">Run sync now</button>
-  </form>
-</section>
+<!-- Configure Modal -->
+<div id="configure-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title">Configure Model</h3>
+      <span class="close" onclick="closeConfigureModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <form id="configure-form">
+        <input type="hidden" id="config-model-id" />
+
+        <label>Model Parameters (JSON)</label>
+        <textarea id="config-params" rows="10"></textarea>
+
+        <label>Ollama Mode</label>
+        <select id="config-mode">
+          <option value="">Default</option>
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI</option>
+        </select>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-refresh" onclick="refreshModelInModal()">Refresh from Provider</button>
+          <button type="button" class="btn-primary" onclick="saveModelConfig()">Save</button>
+          <button type="button" class="btn-success" onclick="saveAndPushModel()">Save & Push to LiteLLM</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <style>
-.provider-block {
-  margin-bottom: 2rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 1rem;
+/* Global Actions */
+.global-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-.provider-header {
+.btn-primary {
+  background: #1976d2;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-success {
+  background: #388e3c;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-refresh {
+  background: #f57c00;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Tabs */
+.tabs-container {
+  margin-top: 1rem;
+}
+
+.tabs-header {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e0e0e0;
+  margin-bottom: 1rem;
+}
+
+.tab {
+  padding: 0.75rem 1.5rem;
+  background: #f5f5f5;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  background: #e0e0e0;
+}
+
+.tab.active {
+  background: white;
+  border-bottom-color: #1976d2;
+  color: #1976d2;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.tab-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #e0e0e0;
+  padding: 1rem;
+  background: #f9f9f9;
+  border-radius: 4px;
 }
 
-.provider-info h3 {
-  margin: 0 0 0.25rem 0;
+.tab-panel-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.provider-info .muted {
-  margin: 0;
-  font-size: 0.9rem;
-}
-
+/* Model List */
 .model-list {
   list-style: none;
   padding: 0;
@@ -64,6 +168,11 @@
   color: #d32f2f;
 }
 
+.model-item.modified .model-name {
+  color: #1976d2;
+  font-weight: 600;
+}
+
 .model-info {
   flex: 1;
 }
@@ -78,31 +187,6 @@
   color: #666;
 }
 
-.model-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.model-actions button {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.85rem;
-}
-
-.btn-refresh {
-  background: #1976d2;
-  color: white;
-}
-
-.btn-push {
-  background: #388e3c;
-  color: white;
-}
-
-.btn-edit {
-  background: #f57c00;
-  color: white;
-}
-
 .badge {
   display: inline-block;
   padding: 0.2rem 0.5rem;
@@ -113,13 +197,100 @@
 }
 
 .badge.modified {
-  background: #f57c00;
+  background: #1976d2;
   color: white;
+}
+
+.badge.orphaned {
+  background: #d32f2f;
+  color: white;
+}
+
+/* Modal */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+  background-color: #fefefe;
+  margin: 5% auto;
+  padding: 0;
+  border: 1px solid #888;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 600px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close {
+  color: #aaa;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: #000;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-body label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.modal-body textarea {
+  width: 100%;
+  padding: 0.5rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.modal-body select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
 }
 </style>
 
 <script>
 let providers = [];
+let activeTabId = null;
 
 async function loadProviders() {
   try {
@@ -127,73 +298,88 @@ async function loadProviders() {
     if (!response.ok) throw new Error('Failed to load providers');
 
     providers = await response.json();
-    await renderProviders();
+    renderTabs();
   } catch (error) {
-    document.getElementById('providers-container').innerHTML =
+    document.getElementById('tabs-header').innerHTML =
       `<p style="color: red;">Error loading providers: ${error.message}</p>`;
   }
 }
 
-async function loadProviderModels(providerId) {
-  const response = await fetch(`/api/providers/${providerId}/models?include_orphaned=true`);
-  if (!response.ok) throw new Error('Failed to load models');
-  return await response.json();
-}
-
-async function renderProviders() {
-  const container = document.getElementById('providers-container');
+function renderTabs() {
+  const tabsHeader = document.getElementById('tabs-header');
+  const tabsContent = document.getElementById('tabs-content');
 
   if (providers.length === 0) {
-    container.innerHTML = '<p class="muted">No providers configured. Add providers in the admin page.</p>';
+    tabsHeader.innerHTML = '<p class="muted">No providers configured. Add providers in the admin page.</p>';
+    tabsContent.innerHTML = '';
     return;
   }
 
-  let html = '';
+  // Render tab buttons
+  const tabButtons = providers.map((p, idx) =>
+    `<button class="tab ${idx === 0 ? 'active' : ''}" onclick="switchTab(${p.id})">${p.name}</button>`
+  ).join('');
+  tabsHeader.innerHTML = tabButtons;
 
-  for (const provider of providers) {
-    try {
-      const data = await loadProviderModels(provider.id);
-      const models = data.models || [];
-
-      html += `
-        <div class="provider-block">
-          <div class="provider-header">
-            <div class="provider-info">
-              <h3>${provider.name}</h3>
-              <p class="muted">
-                ${provider.type} — ${provider.base_url}
-                ${provider.prefix ? `<br>Prefix: <strong>${provider.prefix}</strong>` : ''}
-              </p>
-            </div>
-            <div>
-              <span class="muted">${models.length} model(s)</span>
-            </div>
-          </div>
-          ${models.length > 0 ? renderModels(provider, models) : '<p class="muted">No models synced yet</p>'}
+  // Render tab panels
+  tabsContent.innerHTML = providers.map((p, idx) =>
+    `<div id="tab-${p.id}" class="tab-panel ${idx === 0 ? 'active' : ''}">
+      <div class="tab-panel-header">
+        <div>
+          <strong>${p.name}</strong>
+          <span class="muted"> — ${p.type} — ${p.base_url}</span>
+          ${p.prefix ? `<br><span class="muted">Prefix: <strong>${p.prefix}</strong></span>` : ''}
         </div>
-      `;
-    } catch (error) {
-      html += `
-        <div class="provider-block">
-          <div class="provider-header">
-            <div class="provider-info">
-              <h3>${provider.name}</h3>
-              <p class="muted">${provider.type} — ${provider.base_url}</p>
-            </div>
-          </div>
-          <p style="color: red;">Error loading models: ${error.message}</p>
+        <div class="tab-panel-actions">
+          <button class="btn-primary" onclick="syncProvider(${p.id})">Sync Provider</button>
         </div>
-      `;
-    }
-  }
+      </div>
+      <div id="models-${p.id}">Loading models...</div>
+    </div>`
+  ).join('');
 
-  container.innerHTML = html;
-  bindModelActions();
+  // Load models for all providers
+  providers.forEach(p => loadProviderModels(p.id));
+  activeTabId = providers[0].id;
 }
 
-function renderModels(provider, models) {
+function switchTab(providerId) {
+  // Update tab buttons
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+  event.target.classList.add('active');
+
+  // Update tab panels
+  document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+  document.getElementById(`tab-${providerId}`).classList.add('active');
+
+  activeTabId = providerId;
+}
+
+async function loadProviderModels(providerId) {
+  const container = document.getElementById(`models-${providerId}`);
+
+  try {
+    const response = await fetch(`/api/providers/${providerId}/models?include_orphaned=true`);
+    if (!response.ok) throw new Error('Failed to load models');
+
+    const data = await response.json();
+    const models = data.models || [];
+
+    if (models.length === 0) {
+      container.innerHTML = '<p class="muted">No models synced yet</p>';
+      return;
+    }
+
+    container.innerHTML = renderModels(models);
+  } catch (error) {
+    container.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+  }
+}
+
+function renderModels(models) {
   const items = models.map(model => {
     const orphanedClass = model.is_orphaned ? 'orphaned' : '';
+    const modifiedClass = model.user_modified ? 'modified' : '';
     const displayName = model.display_name || model.model_id;
 
     // Build metadata badges
@@ -206,22 +392,19 @@ function renderModels(provider, models) {
     }
 
     const modifiedBadge = model.user_modified ? '<span class="badge modified">Modified</span>' : '';
+    const orphanedBadge = model.is_orphaned ? '<span class="badge orphaned">Orphaned</span>' : '';
 
     return `
-      <li class="model-item ${orphanedClass}" data-model-id="${model.id}">
+      <li class="model-item ${orphanedClass} ${modifiedClass}">
         <div class="model-info">
           <div class="model-name">${displayName}</div>
           <div class="model-meta">
             ${badges.map(b => `<span class="badge">${b}</span>`).join('')}
             ${modifiedBadge}
-            ${model.is_orphaned ? '<span class="badge" style="background: #d32f2f; color: white;">Orphaned</span>' : ''}
+            ${orphanedBadge}
           </div>
         </div>
-        <div class="model-actions">
-          ${!model.is_orphaned ? `<button class="btn-refresh" onclick="refreshModel(${model.id}, '${displayName}')">Refresh</button>` : ''}
-          <button class="btn-push" onclick="pushModel(${model.id}, '${displayName}')">Push to LiteLLM</button>
-          <button class="btn-edit" onclick="editModel(${model.id})">Edit Params</button>
-        </div>
+        <button class="btn-primary" onclick="openConfigureModal(${model.id})">Configure</button>
       </li>
     `;
   }).join('');
@@ -229,8 +412,66 @@ function renderModels(provider, models) {
   return `<ul class="model-list">${items}</ul>`;
 }
 
-async function refreshModel(modelId, displayName) {
-  if (!confirm(`Refresh "${displayName}" from provider?`)) return;
+async function syncProvider(providerId) {
+  // For now, trigger global sync (we'll implement per-provider sync later if needed)
+  alert('Syncing provider ' + providerId + '...');
+  await syncAllProviders();
+}
+
+async function syncAllProviders() {
+  const btn = document.getElementById('sync-all-btn');
+  btn.disabled = true;
+  btn.textContent = 'Syncing...';
+
+  try {
+    const response = await fetch('/sync', { method: 'POST' });
+
+    if (response.ok || response.redirected) {
+      alert('✓ Sync completed');
+      await loadProviders(); // Reload all providers
+    } else {
+      alert('✗ Sync failed');
+    }
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sync All Providers';
+  }
+}
+
+async function syncToLiteLLM() {
+  alert('Push to LiteLLM not yet implemented');
+}
+
+async function openConfigureModal(modelId) {
+  try {
+    const response = await fetch(`/api/models/db/${modelId}`);
+    if (!response.ok) throw new Error('Failed to load model');
+
+    const model = await response.json();
+
+    document.getElementById('config-model-id').value = modelId;
+    document.getElementById('modal-title').textContent = `Configure ${model.display_name}`;
+    document.getElementById('config-params').value = JSON.stringify(
+      model.effective_params,
+      null,
+      2
+    );
+    document.getElementById('config-mode').value = model.ollama_mode || '';
+
+    document.getElementById('configure-modal').style.display = 'block';
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+function closeConfigureModal() {
+  document.getElementById('configure-modal').style.display = 'none';
+}
+
+async function refreshModelInModal() {
+  const modelId = document.getElementById('config-model-id').value;
 
   try {
     const response = await fetch(`/api/models/db/${modelId}/refresh`, {
@@ -241,7 +482,8 @@ async function refreshModel(modelId, displayName) {
 
     if (response.ok) {
       alert(`✓ ${result.message}`);
-      await loadProviders();
+      // Reload model data in modal
+      await openConfigureModal(parseInt(modelId));
     } else {
       alert(`✗ ${result.detail || 'Refresh failed'}`);
     }
@@ -250,8 +492,43 @@ async function refreshModel(modelId, displayName) {
   }
 }
 
-async function pushModel(modelId, displayName) {
-  if (!confirm(`Push "${displayName}" to LiteLLM?`)) return;
+async function saveModelConfig() {
+  const modelId = document.getElementById('config-model-id').value;
+  const paramsJson = document.getElementById('config-params').value;
+
+  let params;
+  try {
+    params = JSON.parse(paramsJson);
+  } catch (error) {
+    alert(`Invalid JSON: ${error.message}`);
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/models/db/${modelId}/params`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`✓ ${result.message}`);
+      closeConfigureModal();
+      await loadProviders(); // Reload to show updated state
+    } else {
+      alert(`✗ ${result.detail || 'Save failed'}`);
+    }
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+async function saveAndPushModel() {
+  await saveModelConfig();
+
+  const modelId = document.getElementById('config-model-id').value;
 
   try {
     const response = await fetch(`/api/models/db/${modelId}/push`, {
@@ -261,62 +538,21 @@ async function pushModel(modelId, displayName) {
     const result = await response.json();
 
     if (response.ok) {
-      alert(`✓ ${result.message}`);
+      alert(`✓ Pushed to LiteLLM: ${result.message}`);
     } else {
-      alert(`✗ ${result.detail || 'Push failed'}`);
+      alert(`✗ Push failed: ${result.detail || 'Unknown error'}`);
     }
   } catch (error) {
     alert(`Error: ${error.message}`);
   }
 }
 
-async function editModel(modelId) {
-  try {
-    // Fetch current model data
-    const response = await fetch(`/api/models/db/${modelId}`);
-    if (!response.ok) throw new Error('Failed to load model');
-
-    const model = await response.json();
-    const currentParams = model.user_params || model.litellm_params;
-
-    // Show edit dialog
-    const newParamsJson = prompt(
-      `Edit parameters for ${model.display_name}\\n\\nCurrent params (JSON):`,
-      JSON.stringify(currentParams, null, 2)
-    );
-
-    if (!newParamsJson) return; // User cancelled
-
-    let newParams;
-    try {
-      newParams = JSON.parse(newParamsJson);
-    } catch (error) {
-      alert(`Invalid JSON: ${error.message}`);
-      return;
-    }
-
-    // Update parameters
-    const updateResponse = await fetch(`/api/models/db/${modelId}/params`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newParams)
-    });
-
-    const result = await updateResponse.json();
-
-    if (updateResponse.ok) {
-      alert(`✓ ${result.message}`);
-      await loadProviders();
-    } else {
-      alert(`✗ ${result.detail || 'Update failed'}`);
-    }
-  } catch (error) {
-    alert(`Error: ${error.message}`);
+// Close modal when clicking outside
+window.onclick = function(event) {
+  const modal = document.getElementById('configure-modal');
+  if (event.target === modal) {
+    closeConfigureModal();
   }
-}
-
-function bindModelActions() {
-  // Actions are bound via onclick in the HTML
 }
 
 // Load on page load

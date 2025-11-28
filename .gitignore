@@ -16,3 +16,4 @@ build/
 
 # User-specific configuration (contains API keys and URLs)
 data/config.json
+*.db

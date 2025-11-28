@@ -778,7 +778,9 @@ def create_app() -> FastAPI:
 
     @app.post("/sync")
     async def run_sync(session: AsyncSession = Depends(get_session)):
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         try:
             results = await sync_once(config, session)
             await sync_state.update(results)
@@ -1196,9 +1198,9 @@ def create_app() -> FastAPI:
                 detail=f"Model {model.model_id} not found in provider {provider.name}",
             )
 
-        # Update the model in database
+        # Update the model in database with full_update=True to refresh all fields
         try:
-            await upsert_model(session, provider, model_metadata)
+            await upsert_model(session, provider, model_metadata, full_update=True)
             await session.commit()
             logger.info("Refreshed model %s from provider %s", model.model_id, provider.name)
 

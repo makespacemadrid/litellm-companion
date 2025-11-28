@@ -6,6 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Install sqlite3 and other system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends sqlite3 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install application
 COPY pyproject.toml README.md /app/
 COPY litellm_updater /app/litellm_updater

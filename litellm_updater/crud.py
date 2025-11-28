@@ -187,26 +187,38 @@ async def create_model(
 
 
 async def upsert_model(
-    session: AsyncSession, provider: Provider, metadata: ModelMetadata
+    session: AsyncSession, provider: Provider, metadata: ModelMetadata, full_update: bool = False
 ) -> Model:
-    """Create or update model from ModelMetadata."""
+    """Create or update model from ModelMetadata.
+
+    Args:
+        session: Database session
+        provider: Provider instance
+        metadata: Model metadata from source
+        full_update: If True, updates all fields. If False (default), only touches last_seen.
+                     During regular sync, full_update=False to preserve database state.
+                     During refresh, full_update=True to fetch latest from provider.
+    """
     existing = await get_model_by_provider_and_name(session, provider.id, metadata.id)
     now = datetime.now(UTC)
 
     if existing:
-        # Update existing model
-        existing.model_type = metadata.model_type
-        existing.context_window = metadata.context_window
-        existing.max_input_tokens = metadata.max_input_tokens
-        existing.max_output_tokens = metadata.max_output_tokens
-        existing.max_tokens = metadata.max_tokens
-        existing.capabilities = json.dumps(metadata.capabilities)
+        if full_update:
+            # Full update: Update all model fields (used by Refresh action)
+            existing.model_type = metadata.model_type
+            existing.context_window = metadata.context_window
+            existing.max_input_tokens = metadata.max_input_tokens
+            existing.max_output_tokens = metadata.max_output_tokens
+            existing.max_tokens = metadata.max_tokens
+            existing.capabilities = json.dumps(metadata.capabilities)
 
-        # Only update litellm_params if user hasn't modified
-        if not existing.user_modified:
-            existing.litellm_params = json.dumps(metadata.litellm_fields)
+            # Only update litellm_params if user hasn't modified
+            if not existing.user_modified:
+                existing.litellm_params = json.dumps(metadata.litellm_fields)
 
-        existing.raw_metadata = json.dumps(metadata.raw)
+            existing.raw_metadata = json.dumps(metadata.raw)
+
+        # Always update last_seen and un-orphan
         existing.last_seen = now
 
         # Un-orphan if previously orphaned

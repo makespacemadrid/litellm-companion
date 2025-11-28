@@ -123,7 +123,14 @@ async def start_scheduler(
     logger.info("Starting scheduler")
     while True:
         try:
-            config = config_loader()
+            # If session_maker provided, load providers from database
+            if session_maker:
+                from .config_db import load_config_with_db_providers
+
+                async with session_maker() as session:
+                    config = await load_config_with_db_providers(session)
+            else:
+                config = config_loader()
         except (OSError, ValueError, RuntimeError) as exc:  # pragma: no cover - config errors
             logger.error("Failed loading config: %s", exc)
             await asyncio.sleep(60)
