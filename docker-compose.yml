@@ -11,29 +11,61 @@ services:
       - ./.env:/app/.env
     labels:
       com.centurylinklabs.watchtower.enable: "true"
-    depends_on:
-      env-sync:
-        condition: service_completed_successfully
     command: >
       uvicorn litellm_updater.web:create_app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --log-level ${LOG_LEVEL:-info}
 
-  env-sync:
-    build: .
-    image: litellm-updater:latest
-    command: >
-      python /app/scripts/sync_env.py
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 http://localhost:4000/health/liveliness || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:16
+    restart: always
+    container_name: litellm_db
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
     volumes:
-      - ./.env:/app/.env
-    environment:
-      EXAMPLE_ENV_PATH: /app/env.example
-      TARGET_ENV_PATH: /app/.env
-    labels:
-      com.centurylinklabs.watchtower.enable: "false"
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB} -U ${POSTGRES_USER}"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+#  env-sync:
+#    build: .
+#    image: litellm-updater:latest
+#    command: >
+#      python /app/scripts/sync_env.py
+#    volumes:
+#      - ./.env:/app/.env
+#    environment:
+#      EXAMPLE_ENV_PATH: /app/env.example
+#      TARGET_ENV_PATH: /app/.env
+#    labels:
+#      com.centurylinklabs.watchtower.enable: "false"
 
   watchtower:
     image: containrrr/watchtower:latest
     command: --interval ${WATCHTOWER_POLL_INTERVAL:-60} --label-enable
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - litellm-updater
+#    depends_on:
+#      - litellm-updater
+
+volumes:
+  postgres_data:
