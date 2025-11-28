@@ -1,13 +1,18 @@
 # litellm-updater
 
-A small FastAPI service for synchronizing models from Ollama or other LiteLLM/OpenAI-compatible servers into a LiteLLM proxy. It periodically scans upstream sources for models, registers them with LiteLLM using the admin API, and provides a minimal web UI for monitoring and configuration.
+A FastAPI service that synchronizes models from Ollama or other LiteLLM/OpenAI-compatible servers into a LiteLLM proxy. It periodically scans upstream sources for models, persists them to a database, and registers them with LiteLLM using the admin API. Includes a web UI for provider management, model editing, and monitoring.
 
 ## Features
+- **Database-driven provider management** with SQLite persistence
+- **Provider prefixes** (e.g., `mks-ollama/qwen3:8b`) for namespace organization
+- **Ollama mode configuration** (native ollama format vs OpenAI-compatible)
+- **Model parameter editing** with user override preservation across syncs
+- **Orphaned model detection** - highlights models no longer available in source
+- **Per-model actions**: Refresh from source, Push to LiteLLM, Edit parameters
 - Configurable sources (Ollama or LiteLLM/OpenAI compatible)
 - Periodic sync job that registers upstream models with LiteLLM
 - Manual sync trigger from the UI
-- Admin view for managing sources, LiteLLM target, and sync interval
-- Simple dashboard to browse models fetched from each source
+- Web UI for browsing models with database persistence
 
 ## Getting started
 1. **Install dependencies**
@@ -24,9 +29,11 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
 
    The server defaults to `http://0.0.0.0:8000`.
 
-3. **Configure sources and LiteLLM destination**
-   - Navigate to `http://localhost:8000/admin` to set the LiteLLM base URL, update the sync interval, or add/remove sources.
-   - A default `data/config.json` is generated on first run with an empty source list, automatic sync disabled, and a LiteLLM destination at `http://localhost:4000`.
+3. **Configure providers and LiteLLM destination**
+   - Navigate to `http://localhost:8000/admin` to set the LiteLLM base URL, update the sync interval, or manage providers.
+   - **NEW**: If you have existing sources in `config.json`, use the "Migrate from config.json" button to move them to the database.
+   - Add new providers with optional prefix and Ollama mode configuration.
+   - A default `data/config.json` is generated on first run with automatic sync disabled and LiteLLM destination at `http://localhost:4000`.
 
 4. **Trigger sync**
    - The scheduler runs automatically only when the interval is greater than zero.
@@ -69,15 +76,36 @@ A small FastAPI service for synchronizing models from Ollama or other LiteLLM/Op
   ```
 
 ## Configuration
-Configuration is stored in `data/config.json` and uses the following shape:
+
+**Database (`data/models.db`):**
+- Providers (formerly "sources") are now stored in a SQLite database
+- Model metadata, user edits, and orphan status are persisted
+- Use `/admin` UI to manage providers or migrate from config.json
+
+**Config file (`data/config.json`):**
+- Now only contains LiteLLM destination and sync interval
+- Providers are managed through the database (not config.json)
 ```json
 {
   "litellm": {"base_url": "http://localhost:4000", "api_key": null},
-  "sources": [],
+  "sources": [],  // Legacy - use database instead
   "sync_interval_seconds": 0
 }
 ```
 
+## Database Schema
+
+**Providers table:**
+- id, name, base_url, type, api_key, **prefix**, **default_ollama_mode**
+
+**Models table:**
+- id, provider_id, model_id, litellm_params, **user_params**, **is_orphaned**, **user_modified**
+- Tracks first_seen, last_seen, orphaned_at timestamps
+- JSON fields for capabilities, raw_metadata
+
 ## Notes
-- LiteLLM registration is performed via the `/router/model/add` endpoint with the model name discovered from the upstream source.
-- The service uses in-memory state for recent sync results; persistent history is not yet tracked.
+- **LiteLLM registration** is performed via `/model/new` endpoint with model name discovered from upstream source
+- **Prefixes are applied to display names** (e.g., `mks-ollama/qwen3:8b`) but not to internal model paths
+- **User-edited parameters are preserved** across syncs (stored in `user_params` field)
+- **Orphaned models** (no longer in provider) are highlighted in red in the UI
+- **Database migrations** are handled by Alembic (auto-run on startup)
