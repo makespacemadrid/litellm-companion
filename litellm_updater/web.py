@@ -51,6 +51,7 @@ from .sync import start_scheduler, sync_once
 from .tags import generate_model_tags, normalize_tags, parse_tags_input
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def _human_source_type(source_type: SourceType) -> str:
@@ -457,11 +458,15 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/litellm", response_class=HTMLResponse)
-    async def litellm(request: Request):
-        config = load_config()
+    async def litellm(request: Request, session: AsyncSession = Depends(get_session)):
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         litellm_models = []
         litellm_error: str | None = None
         fetched_at: datetime | None = None
+
+        logger.info(f"LiteLLM config: base_url={config.litellm.base_url}, configured={config.litellm.configured}")
 
         if config.litellm.configured:
             try:
