@@ -5,19 +5,28 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .config import load_config
-from .crud import get_all_providers
-from .models import AppConfig, SourceEndpoint, SourceType
+from .crud import get_all_providers, get_config
+from .models import AppConfig, LitellmDestination, SourceEndpoint, SourceType
 
 logger = logging.getLogger(__name__)
 
 
-async def load_providers_from_db(session: AsyncSession) -> list[SourceEndpoint]:
-    """Load all providers from database as SourceEndpoint objects."""
+async def load_providers_from_db(session: AsyncSession, only_sync_enabled: bool = True) -> list[SourceEndpoint]:
+    """Load all providers from database as SourceEndpoint objects.
+
+    Args:
+        session: Database session
+        only_sync_enabled: If True, only load providers with sync_enabled=True
+    """
     providers = await get_all_providers(session)
 
     sources = []
     for provider in providers:
+        # Skip disabled providers if filtering is enabled
+        if only_sync_enabled and not provider.sync_enabled:
+            logger.debug("Skipping disabled provider: %s", provider.name)
+            continue
+
         try:
             source = SourceEndpoint(
                 name=provider.name,
@@ -39,11 +48,22 @@ async def load_providers_from_db(session: AsyncSession) -> list[SourceEndpoint]:
 
 
 async def load_config_with_db_providers(session: AsyncSession) -> AppConfig:
-    """Load config with providers from database instead of config.json."""
-    # Load base config (litellm target, sync interval)
-    config = load_config()
+    """Load configuration entirely from database."""
+    # Load config from database
+    db_config = await get_config(session)
 
-    # Replace sources with providers from database
-    config.sources = await load_providers_from_db(session)
+    # Build LiteLLM target from database config
+    litellm_target = LitellmDestination(
+        base_url=db_config.litellm_base_url,
+        api_key=db_config.litellm_api_key,
+    )
 
-    return config
+    # Load providers from database
+    sources = await load_providers_from_db(session)
+
+    # Build AppConfig from database
+    return AppConfig(
+        litellm=litellm_target,
+        sources=sources,
+        sync_interval_seconds=db_config.sync_interval_seconds,
+    )

@@ -57,12 +57,17 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
     Ensure required columns exist when migrations are unavailable.
 
     This is a safety net for packaged/embedded deployments where the alembic
-    scripts may not be present. It uses lightweight ALTER TABLE statements
-    to add missing columns introduced after the initial schema.
+    scripts may not be present. It creates tables if they don't exist,
+    then uses lightweight ALTER TABLE statements to add missing columns
+    introduced after the initial schema.
     """
+    from .db_models import Base
 
     async with engine.begin() as conn:
-        # Providers.tags
+        # First, create all tables if they don't exist
+        await conn.run_sync(Base.metadata.create_all)
+
+        # Providers.tags / sync_enabled
         result = await conn.exec_driver_sql("PRAGMA table_info(providers)")
         provider_columns = {row[1] for row in result}
         if "tags" not in provider_columns:

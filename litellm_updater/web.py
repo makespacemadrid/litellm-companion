@@ -551,45 +551,62 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/admin/litellm")
-    async def update_litellm(base_url: str = Form(""), api_key: str | None = Form(None)):
+    async def update_litellm(
+        base_url: str = Form(""),
+        api_key: str | None = Form(None),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Update LiteLLM destination in database."""
+        from .crud import update_config
+
         try:
-            target = LitellmDestination(
-                base_url=base_url or None,
-                api_key=api_key or None,
+            await update_config(
+                session,
+                litellm_base_url=base_url or None,
+                litellm_api_key=api_key or None,
             )
-            update_litellm_target(target)
+            await session.commit()
             logger.info("Updated LiteLLM target: %s", base_url or "disabled")
-        except ValueError as exc:
-            logger.error("Invalid LiteLLM configuration: %s", exc)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid LiteLLM configuration: {str(exc)}"
-            )
-        except (OSError, RuntimeError) as exc:
+        except Exception as exc:
+            await session.rollback()
             logger.error("Failed to update LiteLLM target: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update LiteLLM target: {str(exc)}"
+                detail=f"Failed to update LiteLLM target: {str(exc)}",
             )
 
         return RedirectResponse(url="/admin", status_code=303)
 
     @app.post("/admin/interval")
-    async def update_interval(sync_interval_seconds: int = Form(...)):
-        try:
-            set_sync_interval(sync_interval_seconds)
-            logger.info("Updated sync interval: %d seconds", sync_interval_seconds)
-        except ValueError as exc:
-            logger.error("Invalid sync interval: %s", exc)
+    async def update_interval(
+        sync_interval_seconds: int = Form(...),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Update sync interval in database."""
+        from .crud import update_config
+
+        if sync_interval_seconds < 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid sync interval: {str(exc)}"
+                detail="Sync interval must be >= 0",
             )
-        except (OSError, RuntimeError) as exc:
+
+        if sync_interval_seconds > 0 and sync_interval_seconds < 30:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sync interval must be at least 30 seconds when enabled",
+            )
+
+        try:
+            await update_config(session, sync_interval_seconds=sync_interval_seconds)
+            await session.commit()
+            logger.info("Updated sync interval: %d seconds", sync_interval_seconds)
+        except Exception as exc:
+            await session.rollback()
             logger.error("Failed to update sync interval: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update sync interval: {str(exc)}"
+                detail=f"Failed to update sync interval: {str(exc)}",
             )
 
         return RedirectResponse(url="/admin", status_code=303)
@@ -606,6 +623,7 @@ def create_app() -> FastAPI:
         prefix: str | None = Form(None),
         default_ollama_mode: str | None = Form(None),
         tags: str | None = Form(None),
+        sync_enabled: bool = Form(True),
     ):
         """Create a new provider in the database."""
         from .crud import create_provider, get_provider_by_name
@@ -648,6 +666,7 @@ def create_app() -> FastAPI:
                 prefix=prefix or None,
                 default_ollama_mode=default_ollama_mode or None,
                 tags=parsed_tags,
+                sync_enabled=sync_enabled,
             )
             logger.info("Created provider: %s (%s) at %s", name, type, base_url)
         except Exception as exc:
@@ -670,6 +689,7 @@ def create_app() -> FastAPI:
         prefix: str | None = Form(None),
         default_ollama_mode: str | None = Form(None),
         tags: str | None = Form(None),
+        sync_enabled: bool | None = Form(None),
     ):
         """Update an existing provider."""
         from .crud import get_provider_by_id, update_provider
@@ -710,6 +730,7 @@ def create_app() -> FastAPI:
                 prefix=prefix,
                 default_ollama_mode=default_ollama_mode,
                 tags=parsed_tags if tags is not None else None,
+                sync_enabled=sync_enabled,
             )
             logger.info("Updated provider: %s", provider.name)
         except Exception as exc:
@@ -998,6 +1019,7 @@ def create_app() -> FastAPI:
                 "prefix": p.prefix,
                 "default_ollama_mode": p.default_ollama_mode,
                 "tags": p.tags_list,
+                "sync_enabled": p.sync_enabled,
                 "created_at": p.created_at.isoformat(),
                 "updated_at": p.updated_at.isoformat(),
             }
@@ -1048,6 +1070,7 @@ def create_app() -> FastAPI:
                     "is_orphaned": model.is_orphaned,
                     "orphaned_at": model.orphaned_at.isoformat() if model.orphaned_at else None,
                     "user_modified": model.user_modified,
+                    "sync_enabled": model.sync_enabled,
                     "first_seen": model.first_seen.isoformat(),
                     "last_seen": model.last_seen.isoformat(),
                 }
@@ -1264,6 +1287,36 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to update model: {str(exc)}",
+            )
+
+    @app.post("/api/models/db/{model_id}/sync-toggle")
+    async def api_toggle_model_sync(
+        model_id: int,
+        payload: dict = Body(...),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Toggle sync_enabled for a model."""
+        from .crud import get_model_by_id
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        sync_enabled = payload.get("sync_enabled")
+        if sync_enabled is None:
+            raise HTTPException(status_code=400, detail="sync_enabled field is required")
+
+        try:
+            model.sync_enabled = bool(sync_enabled)
+            await session.commit()
+            logger.info("Toggled sync_enabled=%s for model: %s", sync_enabled, model.model_id)
+            return {"status": "success", "sync_enabled": model.sync_enabled}
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Failed to toggle sync_enabled for model")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to toggle sync: {str(exc)}",
             )
 
     @app.post("/api/models/db/{model_id}/push")

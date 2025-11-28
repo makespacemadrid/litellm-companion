@@ -62,6 +62,30 @@ class Provider(Base):
         self.tags = json.dumps(value) if value else None
 
 
+class Config(Base):
+    """Global configuration (LiteLLM destination and sync settings)."""
+
+    __tablename__ = "config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    litellm_base_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    litellm_api_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("sync_interval_seconds >= 0", name="check_sync_interval"),
+    )
+
+
 class Model(Base):
     """Model metadata and configuration."""
 

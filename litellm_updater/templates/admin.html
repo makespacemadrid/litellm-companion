@@ -48,6 +48,10 @@
         </select>
       </label>
     </div>
+    <label style="display: flex; align-items: center; gap: 0.5rem;">
+      <input type="checkbox" name="sync_enabled" checked />
+      <span>Sync Enabled</span>
+    </label>
     <button type="submit">Add Provider</button>
   </form>
 </section>
@@ -68,6 +72,7 @@ async function loadProviders() {
       <li>
         <div>
           <strong>${p.name}</strong> — ${p.type} (${p.base_url})
+          ${!p.sync_enabled ? '<span style="color: orange; font-weight: bold;"> [SYNC DISABLED]</span>' : ''}
           ${p.prefix ? `<br><span class="muted">Prefix: ${p.prefix}</span>` : ''}
           ${p.default_ollama_mode ? `<br><span class="muted">Ollama Mode: ${p.default_ollama_mode}</span>` : ''}
           ${p.tags && p.tags.length ? `<br><span class="muted">Tags: ${p.tags.join(', ')}</span>` : ''}

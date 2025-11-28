@@ -6,9 +6,50 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .db_models import Model, Provider
+from .db_models import Config, Model, Provider
 from .models import ModelMetadata, SourceEndpoint
 from .tags import generate_model_tags, normalize_tags
+
+
+# Config CRUD Operations
+
+
+async def get_config(session: AsyncSession) -> Config:
+    """Get global configuration (creates default if not exists)."""
+    result = await session.execute(select(Config).limit(1))
+    config = result.scalar_one_or_none()
+
+    if config is None:
+        # Create default config
+        config = Config(
+            litellm_base_url=None,
+            litellm_api_key=None,
+            sync_interval_seconds=300,
+        )
+        session.add(config)
+        await session.flush()
+
+    return config
+
+
+async def update_config(
+    session: AsyncSession,
+    litellm_base_url: str | None = None,
+    litellm_api_key: str | None = None,
+    sync_interval_seconds: int | None = None,
+) -> Config:
+    """Update global configuration."""
+    config = await get_config(session)
+
+    if litellm_base_url is not None:
+        config.litellm_base_url = litellm_base_url or None
+    if litellm_api_key is not None:
+        config.litellm_api_key = litellm_api_key or None
+    if sync_interval_seconds is not None:
+        config.sync_interval_seconds = sync_interval_seconds
+
+    config.updated_at = datetime.now(UTC)
+    return config
 
 
 # Provider CRUD Operations
@@ -41,6 +82,7 @@ async def create_provider(
     prefix: str | None = None,
     default_ollama_mode: str | None = None,
     tags: list[str] | None = None,
+    sync_enabled: bool = True,
 ) -> Provider:
     """Create a new provider."""
     if type_ == "ollama" and default_ollama_mode is None:
@@ -52,6 +94,7 @@ async def create_provider(
         api_key=api_key,
         prefix=prefix,
         default_ollama_mode=default_ollama_mode,
+        sync_enabled=sync_enabled,
     )
     provider.tags_list = normalize_tags(tags)
     session.add(provider)
@@ -83,6 +126,7 @@ async def update_provider(
     prefix: str | None = None,
     default_ollama_mode: str | None = None,
     tags: list[str] | None = None,
+    sync_enabled: bool | None = None,
 ) -> Provider:
     """Update existing provider."""
     if name is not None:
@@ -101,6 +145,8 @@ async def update_provider(
         provider.default_ollama_mode = "ollama"
     if tags is not None:
         provider.tags_list = normalize_tags(tags)
+    if sync_enabled is not None:
+        provider.sync_enabled = sync_enabled
 
     provider.updated_at = datetime.now(UTC)
     return provider

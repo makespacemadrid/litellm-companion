@@ -105,6 +105,11 @@ async def _reconcile_litellm_for_provider(
         if model.is_orphaned:
             continue
 
+        # Skip models with sync disabled
+        if not model.sync_enabled:
+            logger.debug("Skipping sync-disabled model: %s", model.model_id)
+            continue
+
         ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
         unique_id_tag = f"unique_id:{provider.name}/{model.model_id}"
         if unique_id_tag in litellm_index:
