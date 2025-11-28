@@ -46,6 +46,7 @@
     </label>
     <label>API Key <input type="text" name="api_key" /></label>
     <label>Prefix <input type="text" name="prefix" placeholder="e.g., mks-ollama" /></label>
+    <label>Tags <input type="text" name="tags" placeholder="Comma separated (e.g., team-a, prod)" /></label>
     <div id="ollama-fields">
       <label>
         Default Ollama Mode
@@ -78,6 +79,7 @@ async function loadProviders() {
           <strong>${p.name}</strong> — ${p.type} (${p.base_url})
           ${p.prefix ? `<br><span class="muted">Prefix: ${p.prefix}</span>` : ''}
           ${p.default_ollama_mode ? `<br><span class="muted">Ollama Mode: ${p.default_ollama_mode}</span>` : ''}
+          ${p.tags && p.tags.length ? `<br><span class="muted">Tags: ${p.tags.join(', ')}</span>` : ''}
         </div>
         <button onclick="deleteProvider(${p.id}, '${p.name}')">Delete</button>
       </li>

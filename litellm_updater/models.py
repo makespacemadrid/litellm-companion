@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field, model_validator
 
+from .tags import normalize_tags
+
 
 class SourceType(str, Enum):
     """Supported upstream source types."""
@@ -34,6 +36,10 @@ class SourceEndpoint(BaseModel):
         None,
         description="Optional prefix for model names (e.g., 'mks-ollama'). Applied to display names and model_name in LiteLLM",
     )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Optional tags applied to all models from this source/provider",
+    )
     default_ollama_mode: str | None = Field(
         None,
         description="Default Ollama mode: 'ollama' or 'openai'. Only valid for Ollama sources",
@@ -47,6 +53,17 @@ class SourceEndpoint(BaseModel):
                 raise ValueError("default_ollama_mode is only valid for Ollama sources")
             if self.default_ollama_mode not in ("ollama", "openai"):
                 raise ValueError("default_ollama_mode must be 'ollama' or 'openai'")
+        elif self.type == SourceType.OLLAMA:
+            # Default to native Ollama mode when not provided
+            self.default_ollama_mode = "ollama"
+        else:
+            self.default_ollama_mode = None
+        return self
+
+    @model_validator(mode="after")
+    def normalize_tags(self) -> "SourceEndpoint":
+        """Normalize tags for consistency."""
+        self.tags = normalize_tags(self.tags)
         return self
 
     @property
@@ -351,6 +368,31 @@ def _fallback_context_window(model_id: str, context_window: int | None) -> int |
     return None
 
 
+def _extract_tags(raw: dict) -> list[str]:
+    """Extract and normalize tags from common payload sections."""
+
+    def _collect(section: dict | None) -> list[str]:
+        if not isinstance(section, dict):
+            return []
+        tags_field = section.get("tags")
+        if isinstance(tags_field, list):
+            return [str(tag) for tag in tags_field if tag]
+        if isinstance(tags_field, str):
+            pieces = tags_field.replace(";", ",").split(",")
+            return [piece.strip() for piece in pieces if piece.strip()]
+        return []
+
+    tags: list[str] = []
+    for section in (raw, raw.get("metadata"), raw.get("details"), raw.get("summary")):
+        tags.extend(_collect(section))
+
+    general = raw.get("general")
+    if isinstance(general, dict):
+        tags.extend(_collect(general))
+
+    return normalize_tags(tags)
+
+
 def _get_default_pricing(model_type: str | None, mode: str | None) -> dict[str, Any]:
     """Get default pricing based on OpenAI GPT-4, Whisper, and DALL-E 3.
 
@@ -474,6 +516,7 @@ class ModelMetadata(BaseModel):
     capabilities: list[str] = Field(
         default_factory=list, description="Normalized list of model capabilities or modalities"
     )
+    tags: list[str] = Field(default_factory=list, description="Tags extracted from the source payload")
     raw: dict = Field(default_factory=dict, description="Raw metadata returned from the source")
 
     @classmethod
@@ -492,6 +535,7 @@ class ModelMetadata(BaseModel):
         model_type = _extract_model_type(model_id, raw, capabilities)
         capabilities = _ensure_capabilities(model_id, capabilities, model_type)
         context_window = _fallback_context_window(model_id, context_window)
+        tags = _extract_tags(raw)
 
         return cls(
             id=model_id,
@@ -503,6 +547,7 @@ class ModelMetadata(BaseModel):
             max_output_tokens=max_output_tokens,
             litellm_mode=litellm_mode,
             capabilities=capabilities,
+            tags=tags,
             raw=raw,
         )
 
@@ -530,6 +575,10 @@ class ModelMetadata(BaseModel):
         ):
             for key, value in _collect(section).items():
                 merged.setdefault(key, value)
+
+        source_tags = normalize_tags(self.tags)
+        if source_tags:
+            merged["tags"] = source_tags
 
         # Add computed fields from normalized metadata
         if self.litellm_mode:

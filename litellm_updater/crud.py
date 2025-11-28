@@ -2,12 +2,13 @@
 import json
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .db_models import Model, Provider
 from .models import ModelMetadata, SourceEndpoint
+from .tags import generate_model_tags, normalize_tags
 
 
 # Provider CRUD Operations
@@ -39,8 +40,11 @@ async def create_provider(
     api_key: str | None = None,
     prefix: str | None = None,
     default_ollama_mode: str | None = None,
+    tags: list[str] | None = None,
 ) -> Provider:
     """Create a new provider."""
+    if type_ == "ollama" and default_ollama_mode is None:
+        default_ollama_mode = "ollama"
     provider = Provider(
         name=name,
         base_url=base_url,
@@ -49,6 +53,7 @@ async def create_provider(
         prefix=prefix,
         default_ollama_mode=default_ollama_mode,
     )
+    provider.tags_list = normalize_tags(tags)
     session.add(provider)
     await session.flush()
     return provider
@@ -64,6 +69,7 @@ async def create_provider_from_source(session: AsyncSession, source: SourceEndpo
         api_key=source.api_key,
         prefix=getattr(source, "prefix", None),
         default_ollama_mode=getattr(source, "default_ollama_mode", None),
+        tags=normalize_tags(getattr(source, "tags", [])),
     )
 
 
@@ -76,6 +82,7 @@ async def update_provider(
     api_key: str | None = None,
     prefix: str | None = None,
     default_ollama_mode: str | None = None,
+    tags: list[str] | None = None,
 ) -> Provider:
     """Update existing provider."""
     if name is not None:
@@ -90,6 +97,10 @@ async def update_provider(
         provider.prefix = prefix
     if default_ollama_mode is not None:
         provider.default_ollama_mode = default_ollama_mode
+    elif provider.type == "ollama" and provider.default_ollama_mode is None:
+        provider.default_ollama_mode = "ollama"
+    if tags is not None:
+        provider.tags_list = normalize_tags(tags)
 
     provider.updated_at = datetime.now(UTC)
     return provider
@@ -104,6 +115,7 @@ async def update_provider_from_source(
     provider.api_key = source.api_key
     provider.prefix = getattr(source, "prefix", None)
     provider.default_ollama_mode = getattr(source, "default_ollama_mode", None)
+    provider.tags_list = normalize_tags(getattr(source, "tags", []))
     provider.updated_at = datetime.now(UTC)
     return provider
 
@@ -163,6 +175,8 @@ async def create_model(
     max_tokens: int | None = None,
     capabilities: list[str] | None = None,
     ollama_mode: str | None = None,
+    system_tags: list[str] | None = None,
+    user_tags: list[str] | None = None,
 ) -> Model:
     """Create a new model."""
     now = datetime.now(UTC)
@@ -177,6 +191,8 @@ async def create_model(
         capabilities=json.dumps(capabilities) if capabilities else None,
         litellm_params=json.dumps(litellm_params),
         raw_metadata=json.dumps(raw_metadata),
+        system_tags=json.dumps(system_tags or []),
+        user_tags=json.dumps(user_tags) if user_tags else None,
         ollama_mode=ollama_mode,
         first_seen=now,
         last_seen=now,
@@ -201,6 +217,17 @@ async def upsert_model(
     """
     existing = await get_model_by_provider_and_name(session, provider.id, metadata.id)
     now = datetime.now(UTC)
+    ollama_mode = metadata.litellm_mode or provider.default_ollama_mode
+    system_tags = generate_model_tags(
+        provider.name,
+        provider.type,
+        metadata,
+        provider_tags=provider.tags_list,
+        mode=ollama_mode,
+    )
+    litellm_fields = metadata.litellm_fields.copy()
+    if system_tags:
+        litellm_fields["tags"] = system_tags
 
     if existing:
         if full_update:
@@ -212,11 +239,11 @@ async def upsert_model(
             existing.max_tokens = metadata.max_tokens
             existing.capabilities = json.dumps(metadata.capabilities)
 
-            # Only update litellm_params if user hasn't modified
-            if not existing.user_modified:
-                existing.litellm_params = json.dumps(metadata.litellm_fields)
-
             existing.raw_metadata = json.dumps(metadata.raw)
+
+        # Always refresh LiteLLM-mappable fields and system tags
+        existing.litellm_params = json.dumps(litellm_fields)
+        existing.system_tags_list = system_tags
 
         # Always update last_seen and un-orphan
         existing.last_seen = now
@@ -240,8 +267,9 @@ async def upsert_model(
             max_output_tokens=metadata.max_output_tokens,
             max_tokens=metadata.max_tokens,
             capabilities=metadata.capabilities,
-            litellm_params=metadata.litellm_fields,
+            litellm_params=litellm_fields,
             raw_metadata=metadata.raw,
+            system_tags=system_tags,
         )
 
 
@@ -274,18 +302,24 @@ async def mark_orphaned_models(
 
 
 async def update_model_params(
-    session: AsyncSession, model: Model, user_params: dict
+    session: AsyncSession, model: Model, user_params: dict | None = None, user_tags: list[str] | None = None
 ) -> Model:
-    """Update model with user-edited parameters."""
-    model.user_params = json.dumps(user_params)
-    model.user_modified = True
-    model.updated_at = datetime.now(UTC)
+    """Update model with user-edited parameters and tags."""
+    if user_params is not None:
+        model.user_params = json.dumps(user_params)
+    if user_tags is not None:
+        model.user_tags_list = normalize_tags(user_tags)
+
+    if user_params is not None or user_tags is not None:
+        model.user_modified = True
+        model.updated_at = datetime.now(UTC)
     return model
 
 
 async def reset_model_params(session: AsyncSession, model: Model) -> Model:
     """Reset model to provider defaults (clear user edits)."""
     model.user_params = None
+    model.user_tags = None
     model.user_modified = False
     model.updated_at = datetime.now(UTC)
     return model

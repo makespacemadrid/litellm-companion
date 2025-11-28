@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, Form, HTTPException, Request, status, Depends
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import httpx
+from alembic.util.exc import CommandError
 from pydantic import BaseModel
 
 from .config import (
@@ -23,7 +24,14 @@ from .config import (
     set_sync_interval,
     update_litellm_target,
 )
-from .database import create_engine, get_session, init_session_maker
+from .database import (
+    create_engine,
+    ensure_minimum_schema,
+    get_database_url,
+    get_session,
+    init_session_maker,
+    run_migrations,
+)
 from .db_models import Base
 from .models import (
     AppConfig,
@@ -39,6 +47,7 @@ from .sources import (
     fetch_source_models,
 )
 from .sync import start_scheduler, sync_once
+from .tags import generate_model_tags, normalize_tags, parse_tags_input
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +85,8 @@ class SyncState:
 
 
 sync_state = SyncState()
+
+DEFAULT_LITELLM_API_KEY = "sk-1234"
 
 
 class ModelDetailsCache:
@@ -136,11 +147,19 @@ class CacheUpdateRequest(BaseModel):
 async def lifespan(app: FastAPI):
     # Initialize database
     logger.info("Initializing database...")
-    engine = create_engine()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+    db_url = get_database_url()
+    engine = create_engine(db_url)
+    try:
+        run_migrations(db_url=db_url)
+        logger.info("Database migrations applied")
+    except CommandError as exc:
+        logger.warning("Alembic migration scripts missing (%s); applying safety schema fixups", exc)
+        await ensure_minimum_schema(engine)
+    except Exception:
+        logger.exception("Database migration failed; falling back to create_all + safety fixups")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await ensure_minimum_schema(engine)
     session_maker = init_session_maker(engine)
     logger.info("Database initialized successfully")
 
@@ -553,6 +572,7 @@ def create_app() -> FastAPI:
         api_key: str | None = Form(None),
         prefix: str | None = Form(None),
         default_ollama_mode: str | None = Form(None),
+        tags: str | None = Form(None),
     ):
         """Create a new provider in the database."""
         from .crud import create_provider, get_provider_by_name
@@ -585,6 +605,7 @@ def create_app() -> FastAPI:
             )
 
         try:
+            parsed_tags = parse_tags_input(tags)
             await create_provider(
                 session,
                 name=name,
@@ -593,6 +614,7 @@ def create_app() -> FastAPI:
                 api_key=api_key or None,
                 prefix=prefix or None,
                 default_ollama_mode=default_ollama_mode or None,
+                tags=parsed_tags,
             )
             logger.info("Created provider: %s (%s) at %s", name, type, base_url)
         except Exception as exc:
@@ -614,6 +636,7 @@ def create_app() -> FastAPI:
         api_key: str | None = Form(None),
         prefix: str | None = Form(None),
         default_ollama_mode: str | None = Form(None),
+        tags: str | None = Form(None),
     ):
         """Update an existing provider."""
         from .crud import get_provider_by_id, update_provider
@@ -643,6 +666,7 @@ def create_app() -> FastAPI:
             )
 
         try:
+            parsed_tags = parse_tags_input(tags)
             await update_provider(
                 session,
                 provider,
@@ -652,6 +676,7 @@ def create_app() -> FastAPI:
                 api_key=api_key,
                 prefix=prefix,
                 default_ollama_mode=default_ollama_mode,
+                tags=parsed_tags if tags is not None else None,
             )
             logger.info("Updated provider: %s", provider.name)
         except Exception as exc:
@@ -825,6 +850,7 @@ def create_app() -> FastAPI:
                 # OpenAI-compatible provider
                 litellm_params["model"] = f"openai/{model_metadata.id}"
                 litellm_params["api_base"] = source_endpoint.normalized_base_url
+                litellm_params.setdefault("api_key", source_endpoint.api_key or DEFAULT_LITELLM_API_KEY)
             elif source_endpoint.type.value == "ollama":
                 # Ollama provider: set model prefix and api_base based on mode
                 if ollama_mode == "openai":
@@ -836,11 +862,19 @@ def create_app() -> FastAPI:
                     litellm_params["model"] = f"ollama/{model_metadata.id}"
                     litellm_params["api_base"] = source_endpoint.normalized_base_url
 
+            auto_tags = generate_model_tags(
+                provider_name=source,
+                provider_type=source_endpoint.type.value,
+                metadata=model_metadata,
+                provider_tags=source_endpoint.tags,
+                mode=ollama_mode,
+            )
             # Add tags inside litellm_params
-            litellm_params["tags"] = ["lupdater", f"provider:{source}", f"type:{source_endpoint.type.value}"]
+            litellm_params["tags"] = auto_tags
 
             # Build model_info with metadata
             model_info = model_metadata.litellm_fields.copy()
+            model_info["tags"] = auto_tags
 
             # Set correct litellm_provider based on source type and mode
             if source_endpoint.type.value == "litellm":
@@ -973,6 +1007,7 @@ def create_app() -> FastAPI:
                 "type": p.type,
                 "prefix": p.prefix,
                 "default_ollama_mode": p.default_ollama_mode,
+                "tags": p.tags_list,
                 "created_at": p.created_at.isoformat(),
                 "updated_at": p.updated_at.isoformat(),
             }
@@ -1016,6 +1051,9 @@ def create_app() -> FastAPI:
                     "litellm_params": model.litellm_params_dict,
                     "user_params": model.user_params_dict,
                     "effective_params": model.effective_params,
+                    "system_tags": model.system_tags_list,
+                    "user_tags": model.user_tags_list,
+                    "tags": model.all_tags,
                     "ollama_mode": model.ollama_mode,
                     "is_orphaned": model.is_orphaned,
                     "orphaned_at": model.orphaned_at.isoformat() if model.orphaned_at else None,
@@ -1030,6 +1068,7 @@ def create_app() -> FastAPI:
                 "id": provider.id,
                 "name": provider.name,
                 "prefix": provider.prefix,
+                "tags": provider.tags_list,
             },
             "models": result,
         }
@@ -1063,6 +1102,9 @@ def create_app() -> FastAPI:
             "litellm_params": model.litellm_params_dict,
             "user_params": model.user_params_dict,
             "effective_params": model.effective_params,
+            "system_tags": model.system_tags_list,
+            "user_tags": model.user_tags_list,
+            "tags": model.all_tags,
             "raw_metadata": model.raw_metadata_dict,
             "ollama_mode": model.ollama_mode,
             "is_orphaned": model.is_orphaned,
@@ -1076,13 +1118,14 @@ def create_app() -> FastAPI:
                 "prefix": provider.prefix,
                 "base_url": provider.base_url,
                 "type": provider.type,
+                "tags": provider.tags_list,
             },
         }
 
     @app.post("/api/models/db/{model_id}/params")
     async def api_update_model_params(
         model_id: int,
-        params: dict,
+        payload: dict = Body(...),
         session: AsyncSession = Depends(get_session),
     ):
         """Update model parameters with user edits."""
@@ -1092,8 +1135,22 @@ def create_app() -> FastAPI:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
 
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+        is_dict_payload = isinstance(payload, dict)
+        params = payload.get("params") if is_dict_payload and "params" in payload else payload
+        tags = payload.get("tags") if is_dict_payload else None
+        if isinstance(tags, str):
+            normalized_tags = parse_tags_input(tags)
+        else:
+            normalized_tags = normalize_tags(tags) if tags is not None else None
+
+        if is_dict_payload and "params" not in payload and set(payload.keys()) == {"tags"}:
+            params = None
+
         try:
-            await update_model_params(session, model, params)
+            await update_model_params(session, model, params, normalized_tags)
             await session.commit()
             logger.info("Updated parameters for model %s (ID: %d)", model.model_id, model_id)
 
@@ -1102,6 +1159,7 @@ def create_app() -> FastAPI:
                 "message": f"Parameters updated for model {model.model_id}",
                 "model_id": model_id,
                 "user_params": model.user_params_dict,
+                "user_tags": model.user_tags_list,
             }
         except Exception as exc:
             logger.exception("Failed to update model parameters")
@@ -1132,6 +1190,7 @@ def create_app() -> FastAPI:
                 "message": f"Parameters reset to defaults for model {model.model_id}",
                 "model_id": model_id,
                 "litellm_params": model.litellm_params_dict,
+                "user_tags": model.user_tags_list,
             }
         except Exception as exc:
             logger.exception("Failed to reset model parameters")
@@ -1256,6 +1315,7 @@ def create_app() -> FastAPI:
             # OpenAI-compatible provider
             litellm_params["model"] = f"openai/{model.model_id}"
             litellm_params["api_base"] = provider.base_url
+            litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
         elif provider.type == "ollama":
             # Ollama provider: set model prefix and api_base based on mode
             if ollama_mode == "openai":
@@ -1267,11 +1327,12 @@ def create_app() -> FastAPI:
                 litellm_params["model"] = f"ollama/{model.model_id}"
                 litellm_params["api_base"] = provider.base_url
 
-        # Add tags inside litellm_params
-        litellm_params["tags"] = ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+        combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+        litellm_params["tags"] = combined_tags
 
         # Build model_info with metadata
         model_info = effective_params.copy()
+        model_info["tags"] = combined_tags
 
         # Set correct litellm_provider based on provider type and mode
         if provider.type == "litellm":
@@ -1361,6 +1422,7 @@ def create_app() -> FastAPI:
                     # OpenAI-compatible provider
                     litellm_params["model"] = f"openai/{model.model_id}"
                     litellm_params["api_base"] = provider.base_url
+                    litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
                 elif provider.type == "ollama":
                     # Ollama provider: set model prefix and api_base based on mode
                     if ollama_mode == "openai":
@@ -1372,11 +1434,12 @@ def create_app() -> FastAPI:
                         litellm_params["model"] = f"ollama/{model.model_id}"
                         litellm_params["api_base"] = provider.base_url
 
-                # Add tags inside litellm_params
-                litellm_params["tags"] = ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+                combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+                litellm_params["tags"] = combined_tags
 
                 # Build model_info with metadata
                 model_info = effective_params.copy()
+                model_info["tags"] = combined_tags
 
                 # Set correct litellm_provider based on provider type and mode
                 if provider.type == "litellm":
@@ -1521,6 +1584,7 @@ def create_app() -> FastAPI:
                 # OpenAI-compatible provider
                 litellm_params["model"] = f"openai/{model_metadata.id}"
                 litellm_params["api_base"] = source_endpoint.normalized_base_url
+                litellm_params.setdefault("api_key", source_endpoint.api_key or DEFAULT_LITELLM_API_KEY)
             elif source_endpoint.type.value == "ollama":
                 # Ollama provider: set model prefix and api_base based on mode
                 if ollama_mode == "openai":
@@ -1528,15 +1592,23 @@ def create_app() -> FastAPI:
                     # OpenAI mode uses /v1 endpoint
                     api_base = source_endpoint.normalized_base_url.rstrip("/")
                     litellm_params["api_base"] = f"{api_base}/v1"
-                else:
-                    litellm_params["model"] = f"ollama/{model_metadata.id}"
-                    litellm_params["api_base"] = source_endpoint.normalized_base_url
+            else:
+                litellm_params["model"] = f"ollama/{model_metadata.id}"
+                litellm_params["api_base"] = source_endpoint.normalized_base_url
 
+            auto_tags = generate_model_tags(
+                provider_name=source,
+                provider_type=source_endpoint.type.value,
+                metadata=model_metadata,
+                provider_tags=source_endpoint.tags,
+                mode=ollama_mode,
+            )
             # Add tags inside litellm_params
-            litellm_params["tags"] = ["lupdater", f"provider:{source}", f"type:{source_endpoint.type.value}"]
+            litellm_params["tags"] = auto_tags
 
             # Build model_info with metadata
             model_info = model_metadata.litellm_fields.copy()
+            model_info["tags"] = auto_tags
 
             # Set correct litellm_provider based on source type and mode
             if source_endpoint.type.value == "litellm":
@@ -1632,5 +1704,3 @@ def create_app() -> FastAPI:
             )
 
     return app
-
-

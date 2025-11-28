@@ -26,7 +26,10 @@ async def load_providers_from_db(session: AsyncSession) -> list[SourceEndpoint]:
                 type=SourceType(provider.type),
                 api_key=provider.api_key,
                 prefix=provider.prefix,
-                default_ollama_mode=provider.default_ollama_mode,
+                default_ollama_mode=provider.default_ollama_mode or (
+                    "ollama" if provider.type == "ollama" else None
+                ),
+                tags=provider.tags_list,
             )
             sources.append(source)
         except Exception as exc:

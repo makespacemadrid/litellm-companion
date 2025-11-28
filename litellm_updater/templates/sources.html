@@ -42,6 +42,10 @@
           <option value="openai">OpenAI</option>
         </select>
 
+        <label>Tags (comma separated)</label>
+        <input id="config-tags" type="text" placeholder="team-a, prod, gpu" />
+        <p class="muted" style="margin-top: -0.5rem; margin-bottom: 0.5rem;">Base tags from provider and capabilities are applied automatically.</p>
+
         <div class="modal-actions">
           <button type="button" class="btn-refresh" onclick="refreshModelInModal()">Refresh from Provider</button>
           <button type="button" class="btn-primary" onclick="saveModelConfig()">Save</button>
@@ -280,6 +284,14 @@
   margin-bottom: 1rem;
 }
 
+.modal-body input[type="text"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
 .modal-actions {
   display: flex;
   gap: 0.5rem;
@@ -291,6 +303,23 @@
 <script>
 let providers = [];
 let activeTabId = null;
+
+function parseTagsInput(raw) {
+  if (!raw) return [];
+
+  const seen = new Set();
+  const tags = [];
+
+  raw.split(',').forEach(part => {
+    const normalized = part.trim().replace(/\s+/g, '-').toLowerCase();
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      tags.push(normalized);
+    }
+  });
+
+  return tags;
+}
 
 async function loadProviders() {
   try {
@@ -390,6 +419,9 @@ function renderModels(models) {
     if (model.capabilities && model.capabilities.length > 0) {
       badges.push(...model.capabilities.slice(0, 2));
     }
+    if (model.tags && model.tags.length > 0) {
+      badges.push(...model.tags.slice(0, 2).map(tag => `#${tag}`));
+    }
 
     const modifiedBadge = model.user_modified ? '<span class="badge modified">Modified</span>' : '';
     const orphanedBadge = model.is_orphaned ? '<span class="badge orphaned">Orphaned</span>' : '';
@@ -484,12 +516,12 @@ async function openConfigureModal(modelId) {
 
     document.getElementById('config-model-id').value = modelId;
     document.getElementById('modal-title').textContent = `Configure ${model.display_name}`;
-    document.getElementById('config-params').value = JSON.stringify(
-      model.effective_params,
-      null,
-      2
-    );
+    const paramsForEditor = { ...(model.effective_params || {}) };
+    delete paramsForEditor.tags;
+    document.getElementById('config-params').value = JSON.stringify(paramsForEditor, null, 2);
     document.getElementById('config-mode').value = model.ollama_mode || '';
+    const currentTags = (model.user_tags && model.user_tags.length > 0) ? model.user_tags : (model.tags || []);
+    document.getElementById('config-tags').value = currentTags.join(', ');
 
     document.getElementById('configure-modal').style.display = 'block';
   } catch (error) {
@@ -526,6 +558,7 @@ async function refreshModelInModal() {
 async function saveModelConfig() {
   const modelId = document.getElementById('config-model-id').value;
   const paramsJson = document.getElementById('config-params').value;
+  const tags = parseTagsInput(document.getElementById('config-tags').value);
 
   let params;
   try {
@@ -539,7 +572,7 @@ async function saveModelConfig() {
     const response = await fetch(`/api/models/db/${modelId}/params`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
+      body: JSON.stringify({ params, tags })
     });
 
     const result = await response.json();
@@ -548,16 +581,20 @@ async function saveModelConfig() {
       alert(`✓ ${result.message}`);
       closeConfigureModal();
       await loadProviders(); // Reload to show updated state
+      return true;
     } else {
       alert(`✗ ${result.detail || 'Save failed'}`);
     }
   } catch (error) {
     alert(`Error: ${error.message}`);
   }
+
+  return false;
 }
 
 async function saveAndPushModel() {
-  await saveModelConfig();
+  const saved = await saveModelConfig();
+  if (!saved) return;
 
   const modelId = document.getElementById('config-model-id').value;
 

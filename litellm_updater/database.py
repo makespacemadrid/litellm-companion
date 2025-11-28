@@ -4,6 +4,10 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from alembic import command
+from alembic.config import Config
+from alembic.util.exc import CommandError
+
 DEFAULT_DB_PATH = Path("data/models.db")
 
 # Global session maker (initialized in lifespan)
@@ -16,11 +20,68 @@ def get_database_url(path: Path = DEFAULT_DB_PATH) -> str:
     return f"sqlite+aiosqlite:///{path}"
 
 
+def get_sync_database_url(path: Path = DEFAULT_DB_PATH) -> str:
+    """Return SQLite sync connection string (used by Alembic)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{path}"
+
+
 def create_engine(db_url: str | None = None) -> AsyncEngine:
     """Create async SQLAlchemy engine."""
     if db_url is None:
         db_url = get_database_url()
     return create_async_engine(db_url, echo=False, future=True)
+
+
+def run_migrations(
+    db_url: str | None = None,
+    config_path: Path | str | None = None,
+    script_location: Path | str | None = None,
+) -> None:
+    """Apply alembic migrations up to head."""
+
+    base_dir = Path(__file__).resolve().parent.parent
+    db_url = db_url or get_database_url()
+    config_path = Path(config_path) if config_path else base_dir / "alembic.ini"
+    script_location = Path(script_location) if script_location else base_dir / "alembic"
+
+    alembic_config = Config(str(config_path))
+    alembic_config.set_main_option("script_location", str(script_location))
+    alembic_config.set_main_option("sqlalchemy.url", db_url)
+
+    command.upgrade(alembic_config, "head")
+
+
+async def ensure_minimum_schema(engine: AsyncEngine) -> None:
+    """
+    Ensure required columns exist when migrations are unavailable.
+
+    This is a safety net for packaged/embedded deployments where the alembic
+    scripts may not be present. It uses lightweight ALTER TABLE statements
+    to add missing columns introduced after the initial schema.
+    """
+
+    async with engine.begin() as conn:
+        # Providers.tags
+        result = await conn.exec_driver_sql("PRAGMA table_info(providers)")
+        provider_columns = {row[1] for row in result}
+        if "tags" not in provider_columns:
+            await conn.exec_driver_sql("ALTER TABLE providers ADD COLUMN tags TEXT")
+
+        # Models.system_tags / user_tags
+        result = await conn.exec_driver_sql("PRAGMA table_info(models)")
+        model_columns = {row[1] for row in result}
+        if "system_tags" not in model_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE models ADD COLUMN system_tags TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "user_tags" not in model_columns:
+            await conn.exec_driver_sql("ALTER TABLE models ADD COLUMN user_tags TEXT")
+
+        # Normalize default values once columns exist
+        await conn.exec_driver_sql(
+            "UPDATE models SET system_tags='[]' WHERE system_tags IS NULL"
+        )
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

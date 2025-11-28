@@ -25,6 +25,7 @@ class Provider(Base):
     api_key: Mapped[str | None] = mapped_column(String, nullable=True)
     prefix: Mapped[str | None] = mapped_column(String, nullable=True)
     default_ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
@@ -46,6 +47,18 @@ class Provider(Base):
             name="check_default_ollama_mode",
         ),
     )
+
+    @property
+    def tags_list(self) -> list[str]:
+        """Parse provider tags JSON to list."""
+        if not self.tags:
+            return []
+        return json.loads(self.tags)
+
+    @tags_list.setter
+    def tags_list(self, value: list[str]) -> None:
+        """Store provider tags as JSON."""
+        self.tags = json.dumps(value) if value else None
 
 
 class Model(Base):
@@ -71,6 +84,8 @@ class Model(Base):
     litellm_params: Mapped[str] = mapped_column(Text, nullable=False)  # JSON object
     raw_metadata: Mapped[str] = mapped_column(Text, nullable=False)  # JSON object
     user_params: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
+    system_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON array
+    user_tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
 
     # Ollama-specific
     ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -150,9 +165,51 @@ class Model(Base):
         self.user_params = json.dumps(value) if value else None
 
     @property
+    def system_tags_list(self) -> list[str]:
+        """Parsed system-generated tags."""
+        if not self.system_tags:
+            return []
+        return json.loads(self.system_tags)
+
+    @system_tags_list.setter
+    def system_tags_list(self, value: list[str]) -> None:
+        """Store system-generated tags JSON."""
+        self.system_tags = json.dumps(value or [])
+
+    @property
+    def user_tags_list(self) -> list[str]:
+        """Parsed user-defined tags."""
+        if not self.user_tags:
+            return []
+        return json.loads(self.user_tags)
+
+    @user_tags_list.setter
+    def user_tags_list(self, value: list[str] | None) -> None:
+        """Store user-defined tags JSON."""
+        self.user_tags = json.dumps(value) if value else None
+
+    @property
+    def all_tags(self) -> list[str]:
+        """Return merged system and user tags."""
+        merged: list[str] = []
+        seen = set()
+        for tag in (self.system_tags_list or []) + (self.user_tags_list or []):
+            if tag not in seen:
+                merged.append(tag)
+                seen.add(tag)
+        return merged
+
+    @property
     def effective_params(self) -> dict[str, Any]:
-        """Return user_params if available, else litellm_params."""
-        return self.user_params_dict or self.litellm_params_dict
+        """Return LiteLLM-compatible model info merged with user overrides."""
+        base_params = dict(self.litellm_params_dict)
+        if self.user_params_dict:
+            base_params.update(self.user_params_dict)
+
+        if self.all_tags:
+            base_params["tags"] = self.all_tags
+
+        return base_params
 
     def get_display_name(self, apply_prefix: bool = True) -> str:
         """Return model name with optional provider prefix."""
