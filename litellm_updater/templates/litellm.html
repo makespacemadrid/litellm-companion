@@ -7,12 +7,19 @@
   {% else %}
   <p class="muted">Fetched at {{ fetched_at or "Unknown" }}</p>
   {% if litellm_models %}
+  <!-- Tag Filters -->
+  <div id="tag-filters" style="margin-bottom: 1rem;">
+    <div style="margin-bottom: 0.5rem; font-weight: 600;">Filter by Tags:</div>
+    <div id="tag-buttons" style="display: flex; flex-wrap: wrap; gap: 0.5rem;"></div>
+  </div>
+
   <!-- Selection Controls -->
   <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
       <input type="checkbox" id="selectAll" style="cursor: pointer;">
       <span>Seleccionar todos</span>
     </label>
+    <span id="filter-count" class="muted"></span>
   </div>
 
   <!-- Bulk Actions Bar -->
@@ -32,7 +39,8 @@
   <ul class="model-cards">
     {% for model in litellm_models %}
     {% set mappable = model.litellm_fields %}
-    <li class="model-card" data-model-id="{{ model.database_id or model.id }}">
+    {% set model_tags = model.raw.get('tags', []) %}
+    <li class="model-card" data-model-id="{{ model.database_id or model.id }}" data-tags="{{ model_tags | tojson | safe }}">
       <!-- Checkbox -->
       <div class="model-card__checkbox">
         <input type="checkbox" class="model-checkbox" value="{{ model.database_id or model.id }}">
@@ -57,6 +65,16 @@
 
       <!-- Model Info -->
       <div class="model-card__info">
+        <!-- Tags -->
+        {% if model_tags and model_tags|length > 0 %}
+        {% for tag in model_tags[:3] %}
+        <span class="badge badge-tag">{{ tag }}</span>
+        {% endfor %}
+        {% if model_tags|length > 3 %}
+        <span class="badge">+{{ model_tags|length - 3 }} tags</span>
+        {% endif %}
+        {% endif %}
+
         <!-- Context Window -->
         {% set context_value = model.max_input_tokens or model.context_window %}
         {% if context_value %}
@@ -153,6 +171,125 @@
     const selectedCount = document.getElementById('selectedCount');
     const selectAllCheckbox = document.getElementById('selectAll');
     const checkboxes = document.querySelectorAll('.model-checkbox');
+    const modelCards = document.querySelectorAll('.model-card');
+    let activeFilters = new Set();
+
+    // Extract all unique tags from models
+    function extractAllTags() {
+      const tagsSet = new Set();
+      modelCards.forEach(card => {
+        try {
+          const tags = JSON.parse(card.dataset.tags || '[]');
+          tags.forEach(tag => tagsSet.add(tag));
+        } catch (e) {
+          console.error('Failed to parse tags for card', e);
+        }
+      });
+      return Array.from(tagsSet).sort();
+    }
+
+    // Render tag filter buttons
+    function renderTagFilters() {
+      const allTags = extractAllTags();
+      const tagButtons = document.getElementById('tag-buttons');
+
+      if (allTags.length === 0) {
+        tagButtons.innerHTML = '<span class="muted">No tags found</span>';
+        return;
+      }
+
+      // Add "All" button
+      let html = '<button class="tag-filter active" data-tag="all">All</button>';
+
+      // Add button for each tag
+      allTags.forEach(tag => {
+        html += `<button class="tag-filter" data-tag="${tag}">${tag}</button>`;
+      });
+
+      tagButtons.innerHTML = html;
+
+      // Add click handlers
+      document.querySelectorAll('.tag-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tag = btn.dataset.tag;
+
+          if (tag === 'all') {
+            // Clear all filters
+            activeFilters.clear();
+            document.querySelectorAll('.tag-filter').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+          } else {
+            // Remove "All" filter
+            document.querySelector('.tag-filter[data-tag="all"]')?.classList.remove('active');
+
+            // Toggle this filter
+            if (activeFilters.has(tag)) {
+              activeFilters.delete(tag);
+              btn.classList.remove('active');
+            } else {
+              activeFilters.add(tag);
+              btn.classList.add('active');
+            }
+
+            // If no filters active, activate "All"
+            if (activeFilters.size === 0) {
+              document.querySelector('.tag-filter[data-tag="all"]')?.classList.add('active');
+            }
+          }
+
+          applyFilters();
+        });
+      });
+    }
+
+    // Apply tag filters to model cards
+    function applyFilters() {
+      let visibleCount = 0;
+
+      modelCards.forEach(card => {
+        try {
+          const cardTags = JSON.parse(card.dataset.tags || '[]');
+
+          // If no filters active, show all
+          if (activeFilters.size === 0) {
+            card.style.display = '';
+            visibleCount++;
+            return;
+          }
+
+          // Check if card has ANY of the active filters
+          const hasMatchingTag = cardTags.some(tag => activeFilters.has(tag));
+
+          if (hasMatchingTag) {
+            card.style.display = '';
+            visibleCount++;
+          } else {
+            card.style.display = 'none';
+            // Uncheck hidden cards
+            const checkbox = card.querySelector('.model-checkbox');
+            if (checkbox && checkbox.checked) {
+              checkbox.checked = false;
+              card.classList.remove('model-card--selected');
+            }
+          }
+        } catch (e) {
+          console.error('Failed to apply filter to card', e);
+        }
+      });
+
+      // Update filter count
+      const filterCount = document.getElementById('filter-count');
+      if (activeFilters.size > 0) {
+        filterCount.textContent = `Showing ${visibleCount} of ${modelCards.length} models`;
+      } else {
+        filterCount.textContent = '';
+      }
+
+      updateBulkActions();
+    }
+
+    // Initialize tag filters
+    renderTagFilters();
 
     // Update bulk actions visibility and select all checkbox state
     function updateBulkActions() {

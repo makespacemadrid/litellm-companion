@@ -441,7 +441,38 @@ async function syncAllProviders() {
 }
 
 async function syncToLiteLLM() {
-  alert('Push to LiteLLM not yet implemented');
+  const btn = document.getElementById('sync-litellm-btn');
+  btn.disabled = true;
+  btn.textContent = 'Pushing...';
+
+  try {
+    const response = await fetch('/api/models/push-all', { method: 'POST' });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert(`✗ Push failed: ${error.detail || 'Unknown error'}`);
+      return;
+    }
+
+    const result = await response.json();
+
+    let message = `✓ ${result.message}\n\n`;
+    message += `Success: ${result.results.success}\n`;
+    message += `Failed: ${result.results.failed}\n`;
+    message += `Total: ${result.results.total}`;
+
+    if (result.results.errors && result.results.errors.length > 0) {
+      message += `\n\nErrors (first 5):\n`;
+      message += result.results.errors.slice(0, 5).join('\n');
+    }
+
+    alert(message);
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Push All to LiteLLM';
+  }
 }
 
 async function openConfigureModal(modelId) {

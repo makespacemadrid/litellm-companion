@@ -182,7 +182,7 @@ async def _delete_model_from_litellm(
 
 async def _add_model_to_litellm(
     litellm_base_url: str, api_key: str | None, model_name: str, model_params: dict | None = None,
-    source_base_url: str | None = None
+    source_base_url: str | None = None, tags: list[str] | None = None
 ) -> dict:
     """Add a single model to LiteLLM using /model/new endpoint.
 
@@ -192,6 +192,7 @@ async def _add_model_to_litellm(
         model_name: Name of the model (e.g., "qwen3:8b")
         model_params: Additional LiteLLM parameters (optional)
         source_base_url: Base URL of the source (for Ollama models)
+        tags: List of tags to attach to the model (e.g., ["lupdater", "provider-name"])
     """
     url = f"{litellm_base_url}/model/new"
     headers = {"Content-Type": "application/json"}
@@ -250,6 +251,10 @@ async def _add_model_to_litellm(
     # Only include model_info if it has content
     if model_info:
         payload["model_info"] = model_info
+
+    # Add tags if provided (always include lupdater tag)
+    if tags:
+        payload["tags"] = tags
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, headers=headers, timeout=30.0)
@@ -1260,6 +1265,11 @@ def create_app() -> FastAPI:
         if provider.type == "ollama":
             model_info["mode"] = ollama_mode
 
+        # Build tags: always include lupdater, add provider name
+        tags = ["lupdater", f"provider:{provider.name}"]
+        if provider.type:
+            tags.append(f"type:{provider.type}")
+
         try:
             # Push to LiteLLM
             result = await _add_model_to_litellm(
@@ -1268,6 +1278,7 @@ def create_app() -> FastAPI:
                 model_name,  # Use prefixed name
                 model_info,
                 provider.base_url,
+                tags=tags,
             )
             logger.info("Pushed model %s to LiteLLM", model_name)
 
@@ -1289,6 +1300,91 @@ def create_app() -> FastAPI:
                 status_code=502,
                 detail=f"Failed to reach LiteLLM: {str(exc)}",
             )
+
+    @app.post("/api/models/push-all")
+    async def api_push_all_models_to_litellm(
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Push all non-orphaned models from all providers to LiteLLM."""
+        from .crud import get_all_providers, get_models_by_provider
+
+        config = load_config()
+        if not config.litellm.configured:
+            raise HTTPException(
+                status_code=400,
+                detail="LiteLLM target is not configured",
+            )
+
+        providers = await get_all_providers(session)
+
+        results = {
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "errors": []
+        }
+
+        for provider in providers:
+            # Get all non-orphaned models for this provider
+            models = await get_models_by_provider(session, provider.id, include_orphaned=False)
+
+            for model in models:
+                results["total"] += 1
+
+                # Get effective parameters
+                effective_params = model.effective_params
+
+                # Build model name with prefix
+                model_name = model.model_id
+                if provider.prefix:
+                    model_name = f"{provider.prefix}/{model.model_id}"
+
+                # Determine ollama_mode
+                ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
+
+                # Add ollama_mode to model_info
+                model_info = effective_params.copy()
+                if provider.type == "ollama":
+                    model_info["mode"] = ollama_mode
+
+                # Build tags
+                tags = ["lupdater", f"provider:{provider.name}"]
+                if provider.type:
+                    tags.append(f"type:{provider.type}")
+
+                try:
+                    # Push to LiteLLM
+                    await _add_model_to_litellm(
+                        config.litellm.normalized_base_url,
+                        config.litellm.api_key,
+                        model_name,
+                        model_info,
+                        provider.base_url,
+                        tags=tags,
+                    )
+                    results["success"] += 1
+                    logger.info("Pushed model %s to LiteLLM", model_name)
+                except httpx.HTTPStatusError as exc:
+                    results["failed"] += 1
+                    error_msg = f"{model_name}: {exc.response.text}"
+                    results["errors"].append(error_msg)
+                    logger.warning("LiteLLM rejected model %s: %s", model_name, exc.response.text)
+                except httpx.RequestError as exc:
+                    results["failed"] += 1
+                    error_msg = f"{model_name}: Failed to reach LiteLLM"
+                    results["errors"].append(error_msg)
+                    logger.warning("Failed to push model %s: %s", model_name, exc)
+                except Exception as exc:
+                    results["failed"] += 1
+                    error_msg = f"{model_name}: {str(exc)}"
+                    results["errors"].append(error_msg)
+                    logger.exception("Unexpected error pushing model %s", model_name)
+
+        return {
+            "status": "completed",
+            "message": f"Pushed {results['success']}/{results['total']} models to LiteLLM",
+            "results": results,
+        }
 
     @app.post("/api/sources")
     async def api_add_source(endpoint: SourceEndpoint):
