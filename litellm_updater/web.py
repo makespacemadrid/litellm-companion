@@ -857,12 +857,23 @@ def create_app() -> FastAPI:
             )
 
         try:
+            # Fix litellm_provider based on source type
+            model_params = model_metadata.litellm_fields.copy()
+            if source_endpoint.type.value == "litellm":
+                model_params["litellm_provider"] = "openai"
+            elif source_endpoint.type.value == "ollama":
+                ollama_mode = source_endpoint.default_ollama_mode or "ollama"
+                if ollama_mode == "openai":
+                    model_params["litellm_provider"] = "openai"
+                else:
+                    model_params["litellm_provider"] = "ollama"
+
             # Add model to LiteLLM
             await _add_model_to_litellm(
                 config.litellm.normalized_base_url,
                 config.litellm.api_key,
                 model_metadata.id,
-                model_metadata.litellm_fields,
+                model_params,
                 source_endpoint.normalized_base_url
             )
             logger.info("Successfully added model %s from %s to LiteLLM", model, source)
@@ -1260,10 +1271,20 @@ def create_app() -> FastAPI:
             "api_base": provider.base_url,
         }
 
-        # Add ollama_mode to model_info
+        # Add ollama_mode to model_info and fix litellm_provider
         model_info = effective_params.copy()
-        if provider.type == "ollama":
+
+        # Set correct litellm_provider based on provider type and mode
+        if provider.type == "litellm":
+            # OpenAI-compatible providers should use openai
+            model_info["litellm_provider"] = "openai"
+        elif provider.type == "ollama":
+            # Ollama providers: check mode
             model_info["mode"] = ollama_mode
+            if ollama_mode == "openai":
+                model_info["litellm_provider"] = "openai"
+            else:
+                model_info["litellm_provider"] = "ollama"
 
         # Build tags: always include lupdater, add provider name
         tags = ["lupdater", f"provider:{provider.name}"]
@@ -1342,10 +1363,20 @@ def create_app() -> FastAPI:
                 # Determine ollama_mode
                 ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
 
-                # Add ollama_mode to model_info
+                # Add ollama_mode to model_info and fix litellm_provider
                 model_info = effective_params.copy()
-                if provider.type == "ollama":
+
+                # Set correct litellm_provider based on provider type and mode
+                if provider.type == "litellm":
+                    # OpenAI-compatible providers should use openai
+                    model_info["litellm_provider"] = "openai"
+                elif provider.type == "ollama":
+                    # Ollama providers: check mode
                     model_info["mode"] = ollama_mode
+                    if ollama_mode == "openai":
+                        model_info["litellm_provider"] = "openai"
+                    else:
+                        model_info["litellm_provider"] = "ollama"
 
                 # Build tags
                 tags = ["lupdater", f"provider:{provider.name}"]
@@ -1473,11 +1504,22 @@ def create_app() -> FastAPI:
             )
 
         try:
+            # Fix litellm_provider based on source type
+            model_params = model_metadata.litellm_fields.copy()
+            if source_endpoint.type.value == "litellm":
+                model_params["litellm_provider"] = "openai"
+            elif source_endpoint.type.value == "ollama":
+                ollama_mode = source_endpoint.default_ollama_mode or "ollama"
+                if ollama_mode == "openai":
+                    model_params["litellm_provider"] = "openai"
+                else:
+                    model_params["litellm_provider"] = "ollama"
+
             result = await _add_model_to_litellm(
                 config.litellm.normalized_base_url,
                 config.litellm.api_key,
                 model_metadata.id,
-                model_metadata.litellm_fields,
+                model_params,
                 source_endpoint.normalized_base_url
             )
             logger.info("Successfully added model %s from %s to LiteLLM via API", model, source)
