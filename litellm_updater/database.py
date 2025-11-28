@@ -67,8 +67,12 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
         provider_columns = {row[1] for row in result}
         if "tags" not in provider_columns:
             await conn.exec_driver_sql("ALTER TABLE providers ADD COLUMN tags TEXT")
+        if "sync_enabled" not in provider_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE providers ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 1"
+            )
 
-        # Models.system_tags / user_tags
+        # Models.system_tags / user_tags / sync_enabled
         result = await conn.exec_driver_sql("PRAGMA table_info(models)")
         model_columns = {row[1] for row in result}
         if "system_tags" not in model_columns:
@@ -77,6 +81,10 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             )
         if "user_tags" not in model_columns:
             await conn.exec_driver_sql("ALTER TABLE models ADD COLUMN user_tags TEXT")
+        if "sync_enabled" not in model_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE models ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 1"
+            )
 
         # Normalize default values once columns exist
         await conn.exec_driver_sql(

@@ -39,7 +39,7 @@
   <ul class="model-cards">
     {% for model in litellm_models %}
     {% set mappable = model.litellm_fields %}
-    {% set model_tags = model.raw.get('tags', []) %}
+    {% set model_tags = model.tags %}
     <li class="model-card" data-model-id="{{ model.database_id or model.id }}" data-tags="{{ model_tags | tojson | safe }}">
       <!-- Checkbox -->
       <div class="model-card__checkbox">
@@ -367,12 +367,13 @@
       }
 
       try {
-        const formData = new FormData();
-        modelIds.forEach(id => formData.append('model_ids', id));
-
+        // Use JSON to avoid form field limit (1000 fields max)
         const response = await fetch('/litellm/models/delete/bulk', {
           method: 'POST',
-          body: formData
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ model_ids: modelIds })
         });
 
         if (response.ok) {

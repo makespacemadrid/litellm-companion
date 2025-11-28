@@ -61,6 +61,8 @@ def generate_model_tags(
         "lupdater",
         f"provider:{provider_name}",
         f"type:{provider_type}",
+        f"model:{metadata.id}",
+        f"unique_id:{provider_name}/{metadata.id}",
     ]
 
     if mode:

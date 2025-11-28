@@ -145,8 +145,7 @@ docker compose down
 
 **Configuration Layer** (`config.py`, `config_db.py`)
 - `config.json` now only stores LiteLLM destination and sync interval
-- **Providers migrated to database** - use `config_db.py` helpers to load from DB
-- `migrate_sources_to_db()` - One-time migration from config.json to database
+- **Providers managed in database** - use `config_db.py` helpers to load from DB
 - Default config auto-created on first run with LiteLLM at `http://localhost:4000`
 - Uses Pydantic validation with `AppConfig` model
 
@@ -198,7 +197,7 @@ docker compose down
 **UI Routes:**
   - `/` - Overview dashboard
   - `/sources` - Database-driven providers and models page
-  - `/admin` - Provider management, migration, LiteLLM config, sync interval
+  - `/admin` - Provider management, LiteLLM config, sync interval
   - `/litellm` - View models in LiteLLM destination
 
 **Provider Management API:**
@@ -206,7 +205,6 @@ docker compose down
   - `POST /admin/providers` - Create provider (with prefix, default_ollama_mode)
   - `POST /admin/providers/{id}` - Update provider
   - `DELETE /admin/providers/{id}` - Delete provider (cascades to models)
-  - `POST /admin/migrate-to-db` - Migrate sources from config.json
 
 **Model Management API:**
   - `GET /api/providers/{id}/models` - Get models for provider (with orphan filtering)
@@ -226,7 +224,6 @@ docker compose down
 
 **Initial Setup:**
 1. User adds providers in `/admin` (stored in database)
-2. Or migrates existing config.json sources via "Migrate from config.json" button
 
 **Synchronization Flow:**
 1. Scheduler (or manual `/sync` trigger) calls `sync_once()` with database session
@@ -427,33 +424,7 @@ CREATE TABLE models (
 );
 ```
 
-## Migration Guide
-
-### From config.json to Database
-
-If you have existing sources in `config.json`:
-
-1. **Automatic Migration (Recommended):**
-   - Visit `/admin` page
-   - Click "Migrate from config.json" button
-   - Providers are created in database
-   - `config.json` sources array remains for backward compatibility
-
-2. **Manual via API:**
-   ```bash
-   curl -X POST http://localhost:8000/admin/migrate-to-db
-   ```
-
-3. **Verify Migration:**
-   ```bash
-   # List providers in database
-   curl http://localhost:8000/api/providers
-   ```
-
-4. **What Happens:**
-   - Each source in `config.json` becomes a Provider in database
-   - Prefix and default_ollama_mode are NULL initially (add via UI)
-   - Migration is idempotent (safe to run multiple times)
+## Provider Management
 
 ### Adding New Providers
 
@@ -510,7 +481,7 @@ curl -X DELETE http://localhost:8000/api/models/db/123/params
 
 **Database Testing:**
 - All new database functionality has been manually tested
-- Tested: Provider CRUD, model persistence, orphan detection, migration
+- Tested: Provider CRUD, model persistence, orphan detection
 - See commit history for test results
 
 **Manual Testing Workflow:**
@@ -521,13 +492,10 @@ pip install -e .
 # 2. Run unit tests
 pytest tests/test_model_details_cache.py tests/test_ollama_payload_cleaning.py -v
 
-# 3. Test migration (with existing config.json)
-# Visit http://localhost:8000/admin and click "Migrate from config.json"
-
-# 4. Test API endpoints
+# 3. Test API endpoints
 curl http://localhost:8000/api/providers
 curl http://localhost:8000/api/providers/1/models
 
-# 5. Test model management
+# 4. Test model management
 # Use UI at /sources to refresh, edit, and push models
 ```

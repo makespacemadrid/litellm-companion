@@ -2,15 +2,6 @@
 {% block content %}
 
 <section class="panel">
-  <h2>Database Migration</h2>
-  <p class="muted">
-    Providers are now managed in the database. If you have sources in config.json, migrate them to the database.
-  </p>
-  <button id="migrate-btn" onclick="migrateToDatabase()">Migrate from config.json</button>
-  <div id="migration-result" style="margin-top: 10px;"></div>
-</section>
-
-<section class="panel">
   <h2>LiteLLM Destination</h2>
   <form action="/admin/litellm" method="post">
     <label>Base URL <input type="text" name="base_url" value="{{ config.litellm.base_url or '' }}" /></label>
@@ -69,7 +60,7 @@ async function loadProviders() {
 
     const container = document.getElementById('providers-list');
     if (providers.length === 0) {
-      container.innerHTML = '<p class="muted">No providers configured. Add one below or migrate from config.json.</p>';
+      container.innerHTML = '<p class="muted">No providers configured. Add one below.</p>';
       return;
     }
 
@@ -81,7 +72,10 @@ async function loadProviders() {
           ${p.default_ollama_mode ? `<br><span class="muted">Ollama Mode: ${p.default_ollama_mode}</span>` : ''}
           ${p.tags && p.tags.length ? `<br><span class="muted">Tags: ${p.tags.join(', ')}</span>` : ''}
         </div>
-        <button onclick="deleteProvider(${p.id}, '${p.name}')">Delete</button>
+        <div style="margin-top: 6px;">
+          <button onclick="openEditProvider(${p.id})" type="button">Edit</button>
+          <button onclick="deleteProvider(${p.id}, '${p.name}')" type="button">Delete</button>
+        </div>
       </li>
     `).join('') + '</ul>';
   } catch (error) {
@@ -138,41 +132,71 @@ async function deleteProvider(id, name) {
   }
 }
 
-async function migrateToDatabase() {
-  const btn = document.getElementById('migrate-btn');
-  const result = document.getElementById('migration-result');
-
-  btn.disabled = true;
-  btn.textContent = 'Migrating...';
-  result.innerHTML = '';
-
-  try {
-    const response = await fetch('/admin/migrate-to-db', {
-      method: 'POST'
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      result.innerHTML = `<p style="color: green;">✓ ${data.message}</p>`;
-      if (data.migrated > 0) {
-        await loadProviders();
-      }
-    } else {
-      result.innerHTML = `<p style="color: red;">✗ ${data.detail || 'Migration failed'}</p>`;
-    }
-  } catch (error) {
-    result.innerHTML = `<p style="color: red;">✗ Error: ${error.message}</p>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Migrate from config.json';
-  }
-}
-
 function toggleOllamaFields() {
   const type = document.getElementById('provider-type').value;
   const ollamaFields = document.getElementById('ollama-fields');
   ollamaFields.style.display = type === 'ollama' ? 'block' : 'none';
+}
+
+function toggleEditOllamaFields() {
+  const type = document.getElementById('edit-provider-type').value;
+  const ollamaFields = document.getElementById('edit-ollama-fields');
+  ollamaFields.style.display = type === 'ollama' ? 'block' : 'none';
+}
+
+async function openEditProvider(id) {
+  try {
+    const response = await fetch('/api/providers');
+    const providers = await response.json();
+    const provider = providers.find(p => p.id === id);
+    if (!provider) {
+      alert('Provider not found');
+      return;
+    }
+
+    document.getElementById('edit-provider-id').value = provider.id;
+    document.getElementById('edit-name').value = provider.name;
+    document.getElementById('edit-base-url').value = provider.base_url;
+    document.getElementById('edit-provider-type').value = provider.type;
+    document.getElementById('edit-api-key').value = provider.api_key || '';
+    document.getElementById('edit-prefix').value = provider.prefix || '';
+    document.getElementById('edit-default-ollama-mode').value = provider.default_ollama_mode || '';
+    document.getElementById('edit-tags').value = (provider.tags || []).join(', ');
+    toggleEditOllamaFields();
+
+    document.getElementById('edit-provider-modal').style.display = 'block';
+  } catch (error) {
+    alert('Error loading provider: ' + error.message);
+  }
+}
+
+function closeEditModal() {
+  document.getElementById('edit-provider-modal').style.display = 'none';
+}
+
+async function saveProviderEdits(event) {
+  event.preventDefault();
+  const id = document.getElementById('edit-provider-id').value;
+  const form = document.getElementById('edit-provider-form');
+  const formData = new FormData(form);
+
+  try {
+    const response = await fetch(`/admin/providers/${id}`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      closeEditModal();
+      await loadProviders();
+      alert('Provider updated successfully');
+    } else {
+      const error = await response.json();
+      alert('Error: ' + (error.detail || 'Failed to update provider'));
+    }
+  } catch (error) {
+    alert('Error: ' + error.message);
+  }
 }
 
 // Load providers on page load
@@ -181,5 +205,46 @@ document.addEventListener('DOMContentLoaded', () => {
   toggleOllamaFields();
 });
 </script>
+
+<!-- Edit Provider Modal -->
+<div id="edit-provider-modal" class="modal" style="display: none;">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-header">
+      <h3>Edit Provider</h3>
+      <span class="close" onclick="closeEditModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <form id="edit-provider-form" onsubmit="saveProviderEdits(event)">
+        <input type="hidden" id="edit-provider-id" name="id" />
+        <label>Name <input type="text" id="edit-name" name="name" required /></label>
+        <label>Base URL <input type="text" id="edit-base-url" name="base_url" required /></label>
+        <label>
+          Type
+          <select id="edit-provider-type" name="type" required onchange="toggleEditOllamaFields()">
+            <option value="ollama">Ollama</option>
+            <option value="litellm">LiteLLM / OpenAI</option>
+          </select>
+        </label>
+        <label>API Key <input type="text" id="edit-api-key" name="api_key" /></label>
+        <label>Prefix <input type="text" id="edit-prefix" name="prefix" placeholder="e.g., mks-ollama" /></label>
+        <label>Tags <input type="text" id="edit-tags" name="tags" placeholder="Comma separated" /></label>
+        <div id="edit-ollama-fields">
+          <label>
+            Default Ollama Mode
+            <select id="edit-default-ollama-mode" name="default_ollama_mode">
+              <option value="">None</option>
+              <option value="ollama">Ollama</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+          <button type="button" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 {% endblock %}

@@ -26,6 +26,7 @@ class Provider(Base):
     prefix: Mapped[str | None] = mapped_column(String, nullable=True)
     default_ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
@@ -100,6 +101,7 @@ class Model(Base):
     is_orphaned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     orphaned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     user_modified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False

@@ -29,6 +29,7 @@ from .database import (
     ensure_minimum_schema,
     get_database_url,
     get_session,
+    async_session_maker,
     init_session_maker,
     run_migrations,
 )
@@ -257,15 +258,45 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(request: Request):
-        config = load_config()
+    async def index(request: Request, session: AsyncSession = Depends(get_session)):
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         last_synced = await sync_state.get_last_synced()
+        # Stats for overview page
+        stats = {"providers": 0, "models": 0, "orphaned": 0, "modified": 0, "litellm_models": 0}
+
+        try:
+            from .crud import get_all_providers, get_models_by_provider
+
+            providers = await get_all_providers(session)
+            stats["providers"] = len(providers)
+            for provider in providers:
+                models = await get_models_by_provider(session, provider.id, include_orphaned=True)
+                stats["models"] += len(models)
+                stats["orphaned"] += len([m for m in models if m.is_orphaned])
+                stats["modified"] += len([m for m in models if m.user_modified])
+
+            # Fetch LiteLLM model count
+            if config.litellm.configured:
+                try:
+                    litellm_models = await fetch_litellm_target_models(
+                        LitellmDestination(base_url=config.litellm.base_url, api_key=config.litellm.api_key)
+                    )
+                    # Count only lupdater-managed models
+                    stats["litellm_models"] = len([m for m in litellm_models if "lupdater" in (m.tags or [])])
+                except Exception as exc:
+                    logger.warning("Failed to fetch LiteLLM model count: %s", exc)
+        except Exception:
+            logger.exception("Failed to load stats for overview")
+
         return templates.TemplateResponse(
             "index.html",
             {
                 "request": request,
                 "config": config,
                 "last_synced": last_synced,
+                "stats": stats,
                 "human_source_type": _human_source_type,
             },
         )
@@ -416,8 +447,10 @@ def create_app() -> FastAPI:
         return updated_payload
 
     @app.get("/admin", response_class=HTMLResponse)
-    async def admin(request: Request):
-        config = load_config()
+    async def admin(request: Request, session: AsyncSession = Depends(get_session)):
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         return templates.TemplateResponse(
             "admin.html",
             {"request": request, "config": config, "human_source_type": _human_source_type},
@@ -711,56 +744,6 @@ def create_app() -> FastAPI:
 
         return JSONResponse(content={"status": "deleted"}, status_code=200)
 
-    @app.post("/admin/migrate-to-db")
-    async def migrate_to_db_endpoint(session: AsyncSession = Depends(get_session)):
-        """Migrate sources from config.json to database."""
-        from .config_db import migrate_sources_to_db
-
-        try:
-            migrated = await migrate_sources_to_db(session)
-
-            if migrated == 0:
-                # Check if there were no sources or if migration already happened
-                from .crud import get_all_providers
-                existing_providers = await get_all_providers(session)
-
-                if existing_providers:
-                    logger.info("Migration skipped: database already has %d providers", len(existing_providers))
-                    return JSONResponse(
-                        content={
-                            "status": "skipped",
-                            "message": f"Database already has {len(existing_providers)} providers. Migration not needed.",
-                            "migrated": 0
-                        },
-                        status_code=200
-                    )
-                else:
-                    logger.info("Migration skipped: no sources in config.json")
-                    return JSONResponse(
-                        content={
-                            "status": "skipped",
-                            "message": "No sources in config.json to migrate.",
-                            "migrated": 0
-                        },
-                        status_code=200
-                    )
-
-            logger.info("Migration completed: %d sources migrated to database", migrated)
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "message": f"Successfully migrated {migrated} source(s) to database.",
-                    "migrated": migrated
-                },
-                status_code=200
-            )
-        except Exception as exc:
-            logger.exception("Failed to migrate sources to database")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Migration failed: {str(exc)}"
-            )
-
     @app.post("/sync")
     async def run_sync(session: AsyncSession = Depends(get_session)):
         from .config_db import load_config_with_db_providers
@@ -956,8 +939,15 @@ def create_app() -> FastAPI:
                 detail="LiteLLM target is not configured"
             )
 
-        form_data = await request.form()
-        model_ids = form_data.getlist("model_ids")
+        # Accept JSON to avoid form field limit (1000 fields max)
+        try:
+            body = await request.json()
+            model_ids = body.get("model_ids", [])
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid JSON body: {exc}"
+            )
 
         if not model_ids:
             raise HTTPException(
@@ -1388,12 +1378,28 @@ def create_app() -> FastAPI:
                 detail="LiteLLM target is not configured",
             )
 
+        # Fetch existing models from LiteLLM to avoid duplicates
+        existing_unique_ids = set()
+        try:
+            litellm_models = await fetch_litellm_target_models(
+                LitellmDestination(base_url=config.litellm.base_url, api_key=config.litellm.api_key)
+            )
+            for m in litellm_models:
+                unique_id_tag = next((t for t in (m.tags or []) if t.startswith("unique_id:")), None)
+                if unique_id_tag:
+                    # Normalize to lowercase for case-insensitive comparison
+                    existing_unique_ids.add(unique_id_tag.lower())
+            logger.info("Found %d existing models in LiteLLM with unique_id tags", len(existing_unique_ids))
+        except Exception as exc:
+            logger.warning("Failed to fetch existing LiteLLM models: %s", exc)
+
         providers = await get_all_providers(session)
 
         results = {
             "total": 0,
             "success": 0,
             "failed": 0,
+            "skipped": 0,
             "errors": []
         }
 
@@ -1403,6 +1409,13 @@ def create_app() -> FastAPI:
 
             for model in models:
                 results["total"] += 1
+
+                # Check if model already exists in LiteLLM using unique_id tag (case-insensitive)
+                unique_id_tag = f"unique_id:{provider.name}/{model.model_id}".lower()
+                if unique_id_tag in existing_unique_ids:
+                    results["skipped"] += 1
+                    logger.info("Skipping duplicate model %s (already in LiteLLM)", model.model_id)
+                    continue
 
                 # Get effective parameters
                 effective_params = model.effective_params
@@ -1434,7 +1447,23 @@ def create_app() -> FastAPI:
                         litellm_params["model"] = f"ollama/{model.model_id}"
                         litellm_params["api_base"] = provider.base_url
 
-                combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+                # Generate tags using the tag generator to ensure unique_id is included
+                if model.all_tags:
+                    combined_tags = model.all_tags
+                else:
+                    # Fallback: generate tags from model metadata
+                    from .models import ModelMetadata
+                    from .tags import generate_model_tags
+
+                    metadata = ModelMetadata.from_raw(model.model_id, model.raw_metadata_dict)
+                    combined_tags = generate_model_tags(
+                        provider_name=provider.name,
+                        provider_type=provider.type,
+                        metadata=metadata,
+                        provider_tags=provider.tags_list,
+                        mode=ollama_mode,
+                    )
+
                 litellm_params["tags"] = combined_tags
 
                 # Build model_info with metadata

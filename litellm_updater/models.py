@@ -383,7 +383,7 @@ def _extract_tags(raw: dict) -> list[str]:
         return []
 
     tags: list[str] = []
-    for section in (raw, raw.get("metadata"), raw.get("details"), raw.get("summary")):
+    for section in (raw, raw.get("metadata"), raw.get("details"), raw.get("summary"), raw.get("litellm_params"), raw.get("model_info")):
         tags.extend(_collect(section))
 
     general = raw.get("general")
