@@ -214,7 +214,8 @@ docker compose down
   - `POST /api/models/db/{id}/params` - Update model user parameters
   - `DELETE /api/models/db/{id}/params` - Reset to provider defaults
   - `POST /api/models/db/{id}/refresh` - Refresh single model from provider
-  - `POST /api/models/db/{id}/push` - Push model to LiteLLM with effective params
+  - `POST /api/models/db/{id}/push` - Push single model to LiteLLM with effective params
+  - `POST /api/models/push-all` - Push all non-orphaned models to LiteLLM
 
 **Legacy/Compatibility API:**
   - `POST /sync` - Manual sync trigger (uses database session)
@@ -240,11 +241,17 @@ docker compose down
 
 **Model Management Flow:**
 1. User views providers/models at `/sources` (loads from database via API)
-2. Orphaned models displayed in RED
+2. Orphaned models displayed in RED, modified models in BLUE
 3. Per-model actions:
-   - **Refresh**: Fetches latest data from provider, updates database
-   - **Edit Params**: Updates `user_params` (preserved across syncs)
-   - **Push to LiteLLM**: Sends `effective_params` (user_params or litellm_params) with prefix applied
+   - **Refresh**: Fetches latest data from provider, updates database with `full_update=True`
+   - **Edit Params**: Updates `user_params` (preserved across syncs), sets `user_modified=True`
+   - **Push to LiteLLM**: Sends single model with `effective_params` and proper tags
+4. Bulk actions:
+   - **Push All to LiteLLM**: Pushes all non-orphaned models with tags (`lupdater`, `provider:*`, `type:*`)
+   - **Sync All Providers**: Fetches models from all providers, updates database with `full_update=False`
+5. LiteLLM page at `/litellm` shows models with tag filtering:
+   - Click tag buttons to filter models by tags (OR logic for multiple tags)
+   - Tags include: `lupdater`, `provider:<name>`, `type:<ollama|litellm>`
 
 **Database Schema:**
 - **Providers**: id, name, base_url, type, prefix, default_ollama_mode, api_key
@@ -260,11 +267,16 @@ docker compose down
 - Orphan detection: Compare active_model_ids set with existing database models
 - User edits: `user_modified` flag prevents automatic overwrites during sync
 
-**Prefix Application**
-- Store original model name in `model_id` field (NO prefix)
+**Prefix Application and Model Naming**
+- Store original model name in `model_id` field (NO prefix) in database
 - Apply prefix only for display: `display_name = f"{prefix}/{model_id}"`
-- LiteLLM `model_name` uses prefix (display), `litellm_params.model` uses original
-- Example: Display shows `mks-ollama/qwen3:8b`, but params have `ollama/qwen3:8b`
+- LiteLLM registration uses two different names:
+  - `model_name`: Display name with prefix (e.g., `mks-ollama/qwen3:8b`) - shown in LiteLLM UI
+  - `litellm_params.model`: Connection string with provider prefix (e.g., `ollama/qwen3:8b` or `openai/qwen3:8b`)
+- Example flow for model `qwen3:8b` with provider prefix `mks-ollama`:
+  - Database `model_id`: `qwen3:8b` (original name)
+  - Display `model_name`: `mks-ollama/qwen3:8b` (prefix for UI)
+  - `litellm_params.model`: `ollama/qwen3:8b` or `openai/qwen3:8b` (based on mode)
 
 **Effective Parameters**
 - `litellm_params`: Auto-updated from provider during sync
@@ -277,6 +289,60 @@ docker compose down
 - Model-level: `ollama_mode` (overrides provider default)
 - Effective mode: `model.ollama_mode or provider.default_ollama_mode or "ollama"`
 - Values: "ollama" (native format) or "openai" (OpenAI-compatible format)
+
+**LiteLLM Integration Pattern**
+
+When pushing models to LiteLLM, the payload is constructed based on provider type and Ollama mode:
+
+**For LiteLLM/OpenAI-compatible providers (`provider.type == "litellm"`):**
+```python
+litellm_params = {
+    "model": f"openai/{model.model_id}",  # e.g., "openai/gpt-4"
+    "api_base": provider.base_url,        # e.g., "http://localai:8080"
+    "tags": ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+}
+model_info = {
+    "litellm_provider": "openai",
+    # ... other metadata from effective_params ...
+}
+```
+
+**For Ollama providers in native mode (`provider.type == "ollama"` and `mode == "ollama"`):**
+```python
+litellm_params = {
+    "model": f"ollama/{model.model_id}",  # e.g., "ollama/qwen3:8b"
+    "api_base": provider.base_url,        # e.g., "http://ollama:11434"
+    "tags": ["lupdater", f"provider:{provider.name}", "type:ollama"]
+}
+model_info = {
+    "litellm_provider": "ollama",
+    "mode": "ollama",
+    # ... other metadata from effective_params ...
+}
+```
+
+**For Ollama providers in OpenAI mode (`provider.type == "ollama"` and `mode == "openai"`):**
+```python
+api_base = provider.base_url.rstrip("/") + "/v1"  # Add /v1 endpoint
+litellm_params = {
+    "model": f"openai/{model.model_id}",  # e.g., "openai/qwen3:8b"
+    "api_base": api_base,                 # e.g., "http://ollama:11434/v1"
+    "tags": ["lupdater", f"provider:{provider.name}", "type:ollama"]
+}
+model_info = {
+    "litellm_provider": "openai",
+    "mode": "openai",
+    # ... other metadata from effective_params ...
+}
+```
+
+**Key Points:**
+- `litellm_params` contains connection configuration (model, api_base, tags)
+- `model_info` contains metadata (capabilities, limits, pricing, litellm_provider)
+- Tags are always placed inside `litellm_params`, not at the top level
+- OpenAI mode for Ollama uses the `/v1` endpoint suffix
+- The `model` field in `litellm_params` always uses the original `model_id` without display prefix
+- The `model_name` in the payload uses the display prefix (e.g., `mks-ollama/qwen3:8b`)
 
 **Error Handling**
 - Network errors (httpx.RequestError) are logged but don't crash the sync
