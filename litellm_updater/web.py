@@ -810,9 +810,12 @@ def create_app() -> FastAPI:
     async def add_model_to_litellm(
         source: str = Form(...),
         model: str = Form(...),
+        session: AsyncSession = Depends(get_session),
     ):
         """Add a single model from a source to LiteLLM."""
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
 
         if not config.litellm.configured:
             raise HTTPException(
@@ -920,9 +923,14 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/sources", status_code=303)
 
     @app.post("/litellm/models/delete")
-    async def delete_model_from_litellm(model_id: str = Form(...)):
+    async def delete_model_from_litellm(
+        model_id: str = Form(...),
+        session: AsyncSession = Depends(get_session),
+    ):
         """Delete a single model from LiteLLM."""
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
 
         if not config.litellm.configured:
             raise HTTPException(
@@ -955,9 +963,11 @@ def create_app() -> FastAPI:
         return RedirectResponse(url="/litellm", status_code=303)
 
     @app.post("/litellm/models/delete/bulk")
-    async def delete_models_bulk(request: Request):
+    async def delete_models_bulk(request: Request, session: AsyncSession = Depends(get_session)):
         """Delete multiple models from LiteLLM."""
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
 
         if not config.litellm.configured:
             raise HTTPException(
@@ -1336,7 +1346,9 @@ def create_app() -> FastAPI:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
 
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         if not config.litellm.configured:
             raise HTTPException(
                 status_code=400,
@@ -1427,9 +1439,10 @@ def create_app() -> FastAPI:
         session: AsyncSession = Depends(get_session),
     ):
         """Push all non-orphaned models from all providers to LiteLLM."""
+        from .config_db import load_config_with_db_providers
         from .crud import get_all_providers, get_models_by_provider
 
-        config = load_config()
+        config = await load_config_with_db_providers(session)
         if not config.litellm.configured:
             raise HTTPException(
                 status_code=400,
