@@ -12,6 +12,7 @@
   <div class="global-actions">
     <button id="sync-all-btn" class="btn-primary" onclick="syncAllProviders()">Sync All Providers</button>
     <button id="sync-litellm-btn" class="btn-success" onclick="syncToLiteLLM()">Push All to LiteLLM</button>
+    <button id="reset-db-btn" class="btn-danger" onclick="deleteAllModelsFromDB()">Reset Model Database</button>
   </div>
 
   <!-- Provider Tabs -->
@@ -98,6 +99,19 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+}
+
+.btn-danger {
+  background: #d32f2f;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: #b71c1c;
 }
 
 /* Tabs */
@@ -193,6 +207,11 @@
 .model-name {
   font-weight: 600;
   margin-bottom: 0.25rem;
+}
+
+.model-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .model-meta {
@@ -474,7 +493,10 @@ function renderModels(models) {
             ${orphanedBadge}
           </div>
         </div>
-        <button class="btn-primary" onclick="openConfigureModal(${model.id})">Configure</button>
+        <div class="model-actions">
+          <button class="btn-primary" onclick="openConfigureModal(${model.id})">Configure</button>
+          <button class="btn-danger" onclick="deleteModelFromDB(${model.id}, '${displayName}')">Delete</button>
+        </div>
       </li>
     `;
   }).join('');
@@ -676,6 +698,56 @@ async function saveAndPushModel() {
       alert(`✓ Pushed to LiteLLM: ${result.message}`);
     } else {
       alert(`✗ Push failed: ${result.detail || 'Unknown error'}`);
+    }
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+async function deleteModelFromDB(modelId, modelName) {
+  if (!confirm(`Are you sure you want to delete model "${modelName}" from the database?\n\nThis will remove all configuration and history for this model.`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/models/db/${modelId}`, {
+      method: 'DELETE'
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`✓ Model deleted: ${result.message}`);
+      await loadProviders(); // Reload to refresh the UI
+    } else {
+      alert(`✗ Delete failed: ${result.detail || 'Unknown error'}`);
+    }
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+async function deleteAllModelsFromDB() {
+  if (!confirm('⚠️ WARNING: This will delete ALL models from the database!\n\nThis action cannot be undone. Are you absolutely sure?')) {
+    return;
+  }
+
+  if (!confirm('This is your last chance to cancel. Delete ALL models from database?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/models/db/reset-all', {
+      method: 'POST'
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert(`✓ Database reset: ${result.message}`);
+      await loadProviders(); // Reload to refresh the UI
+    } else {
+      alert(`✗ Reset failed: ${result.detail || 'Unknown error'}`);
     }
   } catch (error) {
     alert(`Error: ${error.message}`);

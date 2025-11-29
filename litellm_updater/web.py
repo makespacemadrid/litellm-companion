@@ -312,6 +312,16 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.get("/compat", response_class=HTMLResponse)
+    async def compat(request: Request):
+        """Compatibility models management page."""
+        return templates.TemplateResponse(
+            "compat.html",
+            {
+                "request": request,
+            },
+        )
+
     @app.get("/models")
     async def models_redirect(request: Request, source: str | None = None):
         """Expose the latest synced models or redirect browsers to the UI.
@@ -643,9 +653,9 @@ def create_app() -> FastAPI:
             )
 
         # Validate type
-        if type not in ("ollama", "litellm"):
+        if type not in ("ollama", "openai", "compat"):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Type must be 'ollama' or 'litellm'"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Type must be 'ollama', 'openai', or 'compat'"
             )
 
         # Validate ollama_mode
@@ -708,9 +718,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
         # Validate type if provided
-        if type and type not in ("ollama", "litellm"):
+        if type and type not in ("ollama", "openai", "compat"):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Type must be 'ollama' or 'litellm'"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Type must be 'ollama', 'openai', or 'compat'"
             )
 
         # Validate ollama_mode
@@ -820,8 +830,9 @@ def create_app() -> FastAPI:
 
         config = await load_config_with_db_providers(session)
         try:
-            results = await sync_once(config, session)
+            results, stats = await sync_once(config, session)
             await sync_state.update(results)
+            logger.info("Manual sync completed: %s", stats)
         except (httpx.HTTPError, ValueError) as exc:  # pragma: no cover - expected errors
             logger.warning("Manual sync failed: %s", exc)
         except Exception:  # pragma: no cover - unexpected errors
@@ -902,7 +913,7 @@ def create_app() -> FastAPI:
             # Build litellm_params based on source type and mode
             litellm_params = {}
 
-            if source_endpoint.type.value == "litellm":
+            if source_endpoint.type.value == "openai":
                 # OpenAI-compatible provider
                 litellm_params["model"] = f"openai/{model_metadata.id}"
                 litellm_params["api_base"] = source_endpoint.normalized_base_url
@@ -933,7 +944,7 @@ def create_app() -> FastAPI:
             model_info["tags"] = auto_tags
 
             # Set correct litellm_provider based on source type and mode
-            if source_endpoint.type.value == "litellm":
+            if source_endpoint.type.value == "openai":
                 model_info["litellm_provider"] = "openai"
             elif source_endpoint.type.value == "ollama":
                 model_info["mode"] = ollama_mode
@@ -1346,7 +1357,7 @@ def create_app() -> FastAPI:
 
         # Update the model in database with full_update=True to refresh all fields
         try:
-            await upsert_model(session, provider, model_metadata, full_update=True)
+            _, _ = await upsert_model(session, provider, model_metadata, full_update=True)
             await session.commit()
             logger.info("Refreshed model %s from provider %s", model.model_id, provider.name)
 
@@ -1393,6 +1404,115 @@ def create_app() -> FastAPI:
                 detail=f"Failed to toggle sync: {str(exc)}",
             )
 
+    @app.delete("/api/models/db/{model_id}")
+    async def api_delete_model_from_db(
+        model_id: int,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Delete a model from the database."""
+        from .crud import get_model_by_id, delete_model
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model_name = model.model_id
+        provider_name = model.provider.name
+
+        try:
+            await delete_model(session, model)
+            await session.commit()
+            logger.info("Deleted model %s (ID: %d) from database", model_name, model_id)
+            return {
+                "status": "success",
+                "message": f"Model '{model_name}' deleted from database",
+                "model_id": model_id,
+            }
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Failed to delete model from database")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete model: {str(exc)}",
+            )
+
+    @app.post("/api/models/db/delete-bulk")
+    async def api_delete_models_bulk(
+        payload: dict = Body(...),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Delete multiple models from the database."""
+        from .crud import get_model_by_id, delete_model
+
+        model_ids = payload.get("model_ids", [])
+        if not model_ids:
+            raise HTTPException(status_code=400, detail="model_ids array is required")
+
+        deleted = []
+        failed = []
+
+        for model_id in model_ids:
+            try:
+                model = await get_model_by_id(session, model_id)
+                if model:
+                    model_name = model.model_id
+                    await delete_model(session, model)
+                    deleted.append({"id": model_id, "name": model_name})
+                else:
+                    failed.append({"id": model_id, "error": "Model not found"})
+            except Exception as exc:
+                logger.error("Failed to delete model ID %d: %s", model_id, exc)
+                failed.append({"id": model_id, "error": str(exc)})
+
+        try:
+            await session.commit()
+            logger.info("Bulk delete: %d models deleted, %d failed", len(deleted), len(failed))
+            return {
+                "status": "success",
+                "deleted": deleted,
+                "failed": failed,
+                "total_deleted": len(deleted),
+                "total_failed": len(failed),
+            }
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Failed to commit bulk delete")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to commit bulk delete: {str(exc)}",
+            )
+
+    @app.post("/api/models/db/reset-all")
+    async def api_reset_all_models(
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Delete all models from the database. WARNING: This cannot be undone!"""
+        from sqlalchemy import delete, select, func
+        from .db_models import Model
+
+        try:
+            # Count models before deletion
+            result = await session.execute(select(func.count()).select_from(Model))
+            models_before = result.scalar()
+
+            # Delete all models
+            await session.execute(delete(Model))
+            await session.commit()
+
+            logger.warning("RESET: Deleted all %d models from database", models_before)
+            return {
+                "status": "success",
+                "message": f"All {models_before} models deleted from database",
+                "total_deleted": models_before,
+            }
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("Failed to reset all models")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to reset models: {str(exc)}",
+            )
+
     @app.post("/api/models/db/{model_id}/push")
     async def api_push_model_to_litellm(
         model_id: int,
@@ -1416,57 +1536,117 @@ def create_app() -> FastAPI:
 
         provider = model.provider
 
-        # Get effective parameters (user_params if available, else litellm_params)
-        effective_params = model.effective_params
+        # For compat models, inherit properties from mapped model
+        if provider.type == "compat" and model.mapped_provider_id and model.mapped_model_id:
+            from .crud import get_provider_by_id, get_model_by_provider_and_name
 
-        # Build display name with prefix (shown in LiteLLM UI)
-        display_name = model.model_id
-        if provider.prefix:
-            display_name = f"{provider.prefix}/{model.model_id}"
+            mapped_provider = await get_provider_by_id(session, model.mapped_provider_id)
+            mapped_model = await get_model_by_provider_and_name(
+                session, model.mapped_provider_id, model.mapped_model_id
+            )
 
-        # Determine ollama_mode (model override or provider default)
-        ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
+            if not mapped_provider or not mapped_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Mapped model not found for compat model {model.model_id}",
+                )
 
-        # Build litellm_params based on provider type and mode
-        litellm_params = {}
+            # Use mapped model's connection params and metadata
+            mapped_ollama_mode = mapped_model.ollama_mode or mapped_provider.default_ollama_mode or "ollama"
 
-        if provider.type == "litellm":
-            # OpenAI-compatible provider
-            litellm_params["model"] = f"openai/{model.model_id}"
-            litellm_params["api_base"] = provider.base_url
-            litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
-        elif provider.type == "ollama":
-            # Ollama provider: set model prefix and api_base based on mode
-            if ollama_mode == "openai":
-                litellm_params["model"] = f"openai/{model.model_id}"
-                # OpenAI mode uses /v1 endpoint
-                api_base = provider.base_url.rstrip("/")
-                litellm_params["api_base"] = f"{api_base}/v1"
-            else:
-                litellm_params["model"] = f"ollama/{model.model_id}"
-                litellm_params["api_base"] = provider.base_url
+            # Build litellm_params using mapped model
+            litellm_params = {}
+            if mapped_provider.type == "openai":
+                litellm_params["model"] = f"openai/{mapped_model.model_id}"
+                litellm_params["api_base"] = mapped_provider.base_url
+                litellm_params.setdefault("api_key", mapped_provider.api_key or DEFAULT_LITELLM_API_KEY)
+            elif mapped_provider.type == "ollama":
+                if mapped_ollama_mode == "openai":
+                    litellm_params["model"] = f"openai/{mapped_model.model_id}"
+                    api_base = mapped_provider.base_url.rstrip("/")
+                    litellm_params["api_base"] = f"{api_base}/v1"
+                else:
+                    litellm_params["model"] = f"ollama/{mapped_model.model_id}"
+                    litellm_params["api_base"] = mapped_provider.base_url
 
-        combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
-        litellm_params["tags"] = combined_tags
+            # Use compat model's display name
+            display_name = model.model_id
+            if provider.prefix:
+                display_name = f"{provider.prefix}/{model.model_id}"
 
-        # Build model_info with metadata
-        model_info = effective_params.copy()
-        model_info["tags"] = combined_tags
+            # Use compat model's tags and access_groups, but mapped model's metadata
+            combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", "type:compat"]
+            litellm_params["tags"] = combined_tags
 
-        # Set correct litellm_provider based on provider type and mode
-        if provider.type == "litellm":
-            model_info["litellm_provider"] = "openai"
-        elif provider.type == "ollama":
-            model_info["mode"] = ollama_mode
-            if ollama_mode == "openai":
+            # Use mapped model's metadata (effective_params)
+            model_info = mapped_model.effective_params.copy()
+            model_info["tags"] = combined_tags
+
+            # Set litellm_provider based on mapped provider
+            if mapped_provider.type == "openai":
                 model_info["litellm_provider"] = "openai"
-            else:
-                model_info["litellm_provider"] = "ollama"
+            elif mapped_provider.type == "ollama":
+                model_info["mode"] = mapped_ollama_mode
+                model_info["litellm_provider"] = "openai" if mapped_ollama_mode == "openai" else "ollama"
 
-        # Add access_groups if configured (model overrides provider)
-        effective_access_groups = model.get_effective_access_groups()
-        if effective_access_groups:
-            model_info["access_groups"] = effective_access_groups
+            # Use compat model's access_groups (overrides mapped model)
+            effective_access_groups = model.get_effective_access_groups()
+            if effective_access_groups:
+                model_info["access_groups"] = effective_access_groups
+
+        else:
+            # Regular model (non-compat)
+            # Get effective parameters (user_params if available, else litellm_params)
+            effective_params = model.effective_params
+
+            # Build display name with prefix (shown in LiteLLM UI)
+            display_name = model.model_id
+            if provider.prefix:
+                display_name = f"{provider.prefix}/{model.model_id}"
+
+            # Determine ollama_mode (model override or provider default)
+            ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
+
+            # Build litellm_params based on provider type and mode
+            litellm_params = {}
+
+            if provider.type == "openai":
+                # OpenAI-compatible provider
+                litellm_params["model"] = f"openai/{model.model_id}"
+                litellm_params["api_base"] = provider.base_url
+                litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
+            elif provider.type == "ollama":
+                # Ollama provider: set model prefix and api_base based on mode
+                if ollama_mode == "openai":
+                    litellm_params["model"] = f"openai/{model.model_id}"
+                    # OpenAI mode uses /v1 endpoint
+                    api_base = provider.base_url.rstrip("/")
+                    litellm_params["api_base"] = f"{api_base}/v1"
+                else:
+                    litellm_params["model"] = f"ollama/{model.model_id}"
+                    litellm_params["api_base"] = provider.base_url
+
+            combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", f"type:{provider.type}"]
+            litellm_params["tags"] = combined_tags
+
+            # Build model_info with metadata
+            model_info = effective_params.copy()
+            model_info["tags"] = combined_tags
+
+            # Set correct litellm_provider based on provider type and mode
+            if provider.type == "openai":
+                model_info["litellm_provider"] = "openai"
+            elif provider.type == "ollama":
+                model_info["mode"] = ollama_mode
+                if ollama_mode == "openai":
+                    model_info["litellm_provider"] = "openai"
+                else:
+                    model_info["litellm_provider"] = "ollama"
+
+            # Add access_groups if configured (model overrides provider)
+            effective_access_groups = model.get_effective_access_groups()
+            if effective_access_groups:
+                model_info["access_groups"] = effective_access_groups
 
         try:
             # Push to LiteLLM
@@ -1539,10 +1719,19 @@ def create_app() -> FastAPI:
         }
 
         for provider in providers:
+            # Skip providers with sync disabled
+            if not provider.sync_enabled:
+                logger.info("Skipping provider %s (sync disabled)", provider.name)
+                continue
+
             # Get all non-orphaned models for this provider
             models = await get_models_by_provider(session, provider.id, include_orphaned=False)
 
             for model in models:
+                # Skip models with sync disabled
+                if not model.sync_enabled:
+                    logger.info("Skipping model %s (sync disabled)", model.model_id)
+                    continue
                 results["total"] += 1
 
                 # Check if model already exists in LiteLLM using unique_id tag (case-insensitive)
@@ -1552,73 +1741,140 @@ def create_app() -> FastAPI:
                     logger.info("Skipping duplicate model %s (already in LiteLLM)", model.model_id)
                     continue
 
-                # Get effective parameters
-                effective_params = model.effective_params
+                # For compat models, inherit properties from mapped model
+                if provider.type == "compat" and model.mapped_provider_id and model.mapped_model_id:
+                    from .crud import get_provider_by_id, get_model_by_provider_and_name
 
-                # Build display name with prefix (shown in LiteLLM UI)
-                display_name = model.model_id
-                if provider.prefix:
-                    display_name = f"{provider.prefix}/{model.model_id}"
+                    try:
+                        mapped_provider = await get_provider_by_id(session, model.mapped_provider_id)
+                        mapped_model = await get_model_by_provider_and_name(
+                            session, model.mapped_provider_id, model.mapped_model_id
+                        )
 
-                # Determine ollama_mode
-                ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
+                        if not mapped_provider or not mapped_model:
+                            results["failed"] += 1
+                            results["errors"].append(f"{model.model_id}: Mapped model not found")
+                            logger.warning("Mapped model not found for compat model %s", model.model_id)
+                            continue
 
-                # Build litellm_params based on provider type and mode
-                litellm_params = {}
+                        # Use mapped model's connection params and metadata
+                        mapped_ollama_mode = mapped_model.ollama_mode or mapped_provider.default_ollama_mode or "ollama"
 
-                if provider.type == "litellm":
-                    # OpenAI-compatible provider
-                    litellm_params["model"] = f"openai/{model.model_id}"
-                    litellm_params["api_base"] = provider.base_url
-                    litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
-                elif provider.type == "ollama":
-                    # Ollama provider: set model prefix and api_base based on mode
-                    if ollama_mode == "openai":
-                        litellm_params["model"] = f"openai/{model.model_id}"
-                        # OpenAI mode uses /v1 endpoint
-                        api_base = provider.base_url.rstrip("/")
-                        litellm_params["api_base"] = f"{api_base}/v1"
-                    else:
-                        litellm_params["model"] = f"ollama/{model.model_id}"
-                        litellm_params["api_base"] = provider.base_url
+                        # Build litellm_params using mapped model
+                        litellm_params = {}
+                        if mapped_provider.type == "openai":
+                            litellm_params["model"] = f"openai/{mapped_model.model_id}"
+                            litellm_params["api_base"] = mapped_provider.base_url
+                            litellm_params.setdefault("api_key", mapped_provider.api_key or DEFAULT_LITELLM_API_KEY)
+                        elif mapped_provider.type == "ollama":
+                            if mapped_ollama_mode == "openai":
+                                litellm_params["model"] = f"openai/{mapped_model.model_id}"
+                                api_base = mapped_provider.base_url.rstrip("/")
+                                litellm_params["api_base"] = f"{api_base}/v1"
+                            else:
+                                litellm_params["model"] = f"ollama/{mapped_model.model_id}"
+                                litellm_params["api_base"] = mapped_provider.base_url
 
-                # Generate tags using the tag generator to ensure unique_id is included
-                if model.all_tags:
-                    combined_tags = model.all_tags
+                        # Use compat model's display name
+                        display_name = model.model_id
+                        if provider.prefix:
+                            display_name = f"{provider.prefix}/{model.model_id}"
+
+                        # Use compat model's tags
+                        combined_tags = model.all_tags or ["lupdater", f"provider:{provider.name}", "type:compat"]
+                        litellm_params["tags"] = combined_tags
+
+                        # Use mapped model's metadata (effective_params)
+                        model_info = mapped_model.effective_params.copy()
+                        model_info["tags"] = combined_tags
+
+                        # Set litellm_provider based on mapped provider
+                        if mapped_provider.type == "openai":
+                            model_info["litellm_provider"] = "openai"
+                        elif mapped_provider.type == "ollama":
+                            model_info["mode"] = mapped_ollama_mode
+                            model_info["litellm_provider"] = "openai" if mapped_ollama_mode == "openai" else "ollama"
+
+                        # Use compat model's access_groups (overrides mapped model)
+                        effective_access_groups = model.get_effective_access_groups()
+                        if effective_access_groups:
+                            model_info["access_groups"] = effective_access_groups
+
+                    except Exception as exc:
+                        results["failed"] += 1
+                        results["errors"].append(f"{model.model_id}: {str(exc)}")
+                        logger.error("Failed to process compat model %s: %s", model.model_id, exc)
+                        continue
+
                 else:
-                    # Fallback: generate tags from model metadata
-                    from .models import ModelMetadata
-                    from .tags import generate_model_tags
+                    # Regular model (non-compat)
+                    # Get effective parameters
+                    effective_params = model.effective_params
 
-                    metadata = ModelMetadata.from_raw(model.model_id, model.raw_metadata_dict)
-                    combined_tags = generate_model_tags(
-                        provider_name=provider.name,
-                        provider_type=provider.type,
-                        metadata=metadata,
-                        provider_tags=provider.tags_list,
-                        mode=ollama_mode,
-                    )
+                    # Build display name with prefix (shown in LiteLLM UI)
+                    display_name = model.model_id
+                    if provider.prefix:
+                        display_name = f"{provider.prefix}/{model.model_id}"
 
-                litellm_params["tags"] = combined_tags
+                    # Determine ollama_mode
+                    ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
 
-                # Build model_info with metadata
-                model_info = effective_params.copy()
-                model_info["tags"] = combined_tags
+                    # Build litellm_params based on provider type and mode
+                    litellm_params = {}
 
-                # Set correct litellm_provider based on provider type and mode
-                if provider.type == "litellm":
-                    model_info["litellm_provider"] = "openai"
-                elif provider.type == "ollama":
-                    model_info["mode"] = ollama_mode
-                    if ollama_mode == "openai":
-                        model_info["litellm_provider"] = "openai"
+                    if provider.type == "openai":
+                        # OpenAI-compatible provider
+                        litellm_params["model"] = f"openai/{model.model_id}"
+                        litellm_params["api_base"] = provider.base_url
+                        litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
+                    elif provider.type == "ollama":
+                        # Ollama provider: set model prefix and api_base based on mode
+                        if ollama_mode == "openai":
+                            litellm_params["model"] = f"openai/{model.model_id}"
+                            # OpenAI mode uses /v1 endpoint
+                            api_base = provider.base_url.rstrip("/")
+                            litellm_params["api_base"] = f"{api_base}/v1"
+                        else:
+                            litellm_params["model"] = f"ollama/{model.model_id}"
+                            litellm_params["api_base"] = provider.base_url
+
+                    # Generate tags using the tag generator to ensure unique_id is included
+                    if model.all_tags:
+                        combined_tags = model.all_tags
                     else:
-                        model_info["litellm_provider"] = "ollama"
+                        # Fallback: generate tags from model metadata
+                        from .models import ModelMetadata
+                        from .tags import generate_model_tags
 
-                # Add access_groups if configured (model overrides provider)
-                effective_access_groups = model.get_effective_access_groups()
-                if effective_access_groups:
-                    model_info["access_groups"] = effective_access_groups
+                        metadata = ModelMetadata.from_raw(model.model_id, model.raw_metadata_dict)
+                        combined_tags = generate_model_tags(
+                            provider_name=provider.name,
+                            provider_type=provider.type,
+                            metadata=metadata,
+                            provider_tags=provider.tags_list,
+                            mode=ollama_mode,
+                        )
+
+                    litellm_params["tags"] = combined_tags
+
+                    # Build model_info with metadata
+                    model_info = effective_params.copy()
+                    model_info["tags"] = combined_tags
+
+                    # Set correct litellm_provider based on provider type and mode
+                    if provider.type == "openai":
+                        model_info["litellm_provider"] = "openai"
+                    elif provider.type == "ollama":
+                        model_info["mode"] = ollama_mode
+                        if ollama_mode == "openai":
+                            model_info["litellm_provider"] = "openai"
+                        else:
+                            model_info["litellm_provider"] = "ollama"
+
+                    # Add access_groups if configured (model overrides provider)
+                    effective_access_groups = model.get_effective_access_groups()
+                    if effective_access_groups:
+                        model_info["access_groups"] = effective_access_groups
 
                 try:
                     # Push to LiteLLM
@@ -1780,7 +2036,7 @@ def create_app() -> FastAPI:
             model_info["tags"] = auto_tags
 
             # Set correct litellm_provider based on source type and mode
-            if source_endpoint.type.value == "litellm":
+            if source_endpoint.type.value == "openai":
                 model_info["litellm_provider"] = "openai"
             elif source_endpoint.type.value == "ollama":
                 model_info["mode"] = ollama_mode
@@ -1848,16 +2104,16 @@ def create_app() -> FastAPI:
     @app.post("/api/sync")
     async def api_sync(session: AsyncSession = Depends(get_session)):
         """Trigger a manual sync via API."""
-        config = load_config()
+        from .config_db import load_config_with_db_providers
+
+        config = await load_config_with_db_providers(session)
         try:
-            results = await sync_once(config, session)
+            results, stats = await sync_once(config, session)
             await sync_state.update(results)
-            model_count = sum(len(source_models.models) for source_models in results.values())
             return {
                 "status": "success",
                 "message": "Sync completed successfully",
-                "sources_synced": len(results),
-                "total_models": model_count
+                "statistics": stats
             }
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning("API sync failed: %s", exc)
@@ -1871,5 +2127,252 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Unexpected error during sync: {str(exc)}"
             )
+
+    # Compat Models API Endpoints
+
+    @app.get("/api/compat/models")
+    async def api_get_compat_models(session: AsyncSession = Depends(get_session)):
+        """Get all compat models."""
+        from .crud import get_all_compat_models, get_provider_by_id
+
+        models = await get_all_compat_models(session)
+        result = []
+
+        for model in models:
+            mapped_provider = None
+            mapped_model = None
+            if model.mapped_provider_id:
+                mapped_prov = await get_provider_by_id(session, model.mapped_provider_id)
+                if mapped_prov:
+                    mapped_provider = {
+                        "id": mapped_prov.id,
+                        "name": mapped_prov.name,
+                        "type": mapped_prov.type,
+                    }
+            if model.mapped_model_id:
+                mapped_model = model.mapped_model_id
+
+            result.append({
+                "id": model.id,
+                "model_name": model.model_id,
+                "mapped_provider": mapped_provider,
+                "mapped_model_id": mapped_model,
+                "user_params": model.user_params_dict,
+                "access_groups": model.access_groups_list,
+                "sync_enabled": model.sync_enabled,
+                "created_at": model.created_at.isoformat(),
+                "updated_at": model.updated_at.isoformat(),
+            })
+
+        return result
+
+    @app.post("/api/compat/models")
+    async def api_create_compat_model(
+        model_name: str = Form(...),
+        mapped_provider_id: int = Form(None),
+        mapped_model_id: str = Form(None),
+        access_groups: str = Form(None),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Create a new compat model."""
+        from .crud import create_compat_model, get_provider_by_id
+        from .tags import parse_tags_input
+
+        # Validate mapped provider if provided
+        if mapped_provider_id:
+            mapped_provider = await get_provider_by_id(session, mapped_provider_id)
+            if not mapped_provider:
+                raise HTTPException(status_code=404, detail="Mapped provider not found")
+
+        # Parse access_groups
+        access_groups_list = parse_tags_input(access_groups) if access_groups else None
+
+        # Create compat model
+        model = await create_compat_model(
+            session,
+            model_name=model_name,
+            mapped_provider_id=mapped_provider_id,
+            mapped_model_id=mapped_model_id,
+            access_groups=access_groups_list,
+        )
+
+        await session.commit()
+        return {
+            "status": "success",
+            "message": f"Compat model '{model_name}' created",
+            "model_id": model.id,
+        }
+
+    @app.put("/api/compat/models/{model_id}")
+    async def api_update_compat_model(
+        model_id: int,
+        mapped_provider_id: int = Form(None),
+        mapped_model_id: str = Form(None),
+        access_groups: str = Form(None),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Update a compat model's mapping."""
+        from .crud import get_model_by_id, update_compat_model, get_provider_by_id
+        from .tags import parse_tags_input
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        # Validate it's a compat model
+        if model.provider.type != "compat":
+            raise HTTPException(status_code=400, detail="Model is not a compat model")
+
+        # Validate mapped provider if provided
+        if mapped_provider_id:
+            mapped_provider = await get_provider_by_id(session, mapped_provider_id)
+            if not mapped_provider:
+                raise HTTPException(status_code=404, detail="Mapped provider not found")
+
+        # Parse access_groups
+        access_groups_list = parse_tags_input(access_groups) if access_groups else None
+
+        # Update compat model
+        await update_compat_model(
+            session,
+            model=model,
+            mapped_provider_id=mapped_provider_id,
+            mapped_model_id=mapped_model_id,
+            access_groups=access_groups_list,
+        )
+
+        await session.commit()
+        return {
+            "status": "success",
+            "message": f"Compat model '{model.model_id}' updated",
+        }
+
+    @app.delete("/api/compat/models/{model_id}")
+    async def api_delete_compat_model(
+        model_id: int,
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Delete a compat model."""
+        from .crud import get_model_by_id, delete_model
+
+        model = await get_model_by_id(session, model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        # Validate it's a compat model
+        if model.provider.type != "compat":
+            raise HTTPException(status_code=400, detail="Model is not a compat model")
+
+        model_name = model.model_id
+        await delete_model(session, model)
+        await session.commit()
+
+        return {
+            "status": "success",
+            "message": f"Compat model '{model_name}' deleted",
+        }
+
+    @app.post("/api/compat/register-defaults")
+    async def api_register_default_compat_models(
+        session: AsyncSession = Depends(get_session),
+    ):
+        """Register all default OpenAI-compatible models to the compat provider."""
+        from .crud import create_compat_model, get_provider_by_name, get_model_by_provider_and_name
+        from .default_compat_models import DEFAULT_COMPAT_MODELS, DEFAULT_OLLAMA_BASE, get_model_count_summary
+        import re
+
+        # Find the Ollama provider that matches the default base URL
+        from .crud import get_all_providers
+        providers = await get_all_providers(session)
+
+        ollama_provider = None
+        for provider in providers:
+            if provider.type == "ollama" and provider.base_url.rstrip("/") == DEFAULT_OLLAMA_BASE.rstrip("/"):
+                ollama_provider = provider
+                break
+
+        if not ollama_provider:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No Ollama provider found for {DEFAULT_OLLAMA_BASE}. Please create one first.",
+            )
+
+        # Track results
+        results = {
+            "total": len(DEFAULT_COMPAT_MODELS),
+            "success": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+        }
+
+        # Register each model to the compat provider in database
+        for model_def in DEFAULT_COMPAT_MODELS:
+            model_name = model_def["model_name"]
+
+            try:
+                # Extract Ollama model name from litellm_params.model
+                # e.g., "ollama/gpt-oss:20b" or "ollama/qwen3:4b"
+                litellm_model = model_def["litellm_params"]["model"]
+                match = re.match(r"^ollama/(.+)$", litellm_model)
+                if not match:
+                    results["failed"] += 1
+                    results["errors"].append(f"{model_name}: Invalid model format '{litellm_model}'")
+                    continue
+
+                ollama_model_name = match.group(1)  # e.g., "gpt-oss:20b"
+
+                # Extract access_groups from tags (use first tag that looks like an access group)
+                tags = model_def["litellm_params"].get("tags", [])
+                access_groups = ["compat"]  # Default
+                if "compat" in tags:
+                    access_groups = ["compat"]
+
+                # Check if compat model already exists
+                compat_provider = await get_provider_by_name(session, "compat_models")
+                if compat_provider:
+                    existing_model = await get_model_by_provider_and_name(
+                        session, compat_provider.id, model_name
+                    )
+                    if existing_model:
+                        results["skipped"] += 1
+                        logger.info(f"Skipped existing compat model: {model_name}")
+                        continue
+
+                # Create compat model with mapping to Ollama provider
+                model = await create_compat_model(
+                    session,
+                    model_name=model_name,
+                    mapped_provider_id=ollama_provider.id,
+                    mapped_model_id=ollama_model_name,
+                    access_groups=access_groups,
+                )
+
+                results["success"] += 1
+                logger.info(f"Created compat model: {model_name} → {ollama_model_name}")
+
+            except Exception as exc:
+                results["failed"] += 1
+                error_msg = f"{model_name}: {str(exc)}"
+                results["errors"].append(error_msg)
+                logger.exception(f"Error creating compat model {model_name}")
+
+        # Commit all changes
+        await session.commit()
+
+        # Get category summary
+        summary = get_model_count_summary()
+
+        return {
+            "status": "completed",
+            "message": f"Created {results['success']} compat models, skipped {results['skipped']} existing, {results['failed']} failed",
+            "results": results,
+            "summary": summary,
+            "provider": {
+                "id": ollama_provider.id,
+                "name": ollama_provider.name,
+                "base_url": ollama_provider.base_url,
+            },
+        }
 
     return app

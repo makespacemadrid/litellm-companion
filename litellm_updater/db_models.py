@@ -43,7 +43,7 @@ class Provider(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("type IN ('ollama', 'litellm')", name="check_provider_type"),
+        CheckConstraint("type IN ('ollama', 'openai', 'compat')", name="check_provider_type"),
         CheckConstraint(
             "default_ollama_mode IS NULL OR default_ollama_mode IN ('ollama', 'openai')",
             name="check_default_ollama_mode",
@@ -128,6 +128,10 @@ class Model(Base):
 
     # Ollama-specific
     ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Compat model mapping (for compat provider models only)
+    mapped_provider_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mapped_model_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Tracking
     first_seen: Mapped[datetime] = mapped_column(

@@ -32,7 +32,7 @@
       Type
       <select name="type" id="provider-type" required onchange="toggleOllamaFields()">
         <option value="ollama">Ollama</option>
-        <option value="litellm">LiteLLM / OpenAI</option>
+        <option value="openai">OpenAI</option>
       </select>
     </label>
     <label>API Key <input type="text" name="api_key" /></label>
@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
           Type
           <select id="edit-provider-type" name="type" required onchange="toggleEditOllamaFields()">
             <option value="ollama">Ollama</option>
-            <option value="litellm">LiteLLM / OpenAI</option>
+            <option value="openai">OpenAI</option>
           </select>
         </label>
         <label>API Key <input type="text" id="edit-api-key" name="api_key" /></label>

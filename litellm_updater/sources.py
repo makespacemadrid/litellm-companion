@@ -45,7 +45,7 @@ def _clean_ollama_payload(payload: dict) -> dict:
 
 
 async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint) -> list[ModelMetadata]:
-    """Fetch models from an Ollama server using the lightweight tags endpoint."""
+    """Fetch models from an Ollama server and enrich with detailed metadata."""
 
     url = f"{source.normalized_base_url}/api/tags"
     headers = _make_auth_headers(source.api_key)
@@ -58,9 +58,25 @@ async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint)
         raise ValueError(f"Invalid JSON response from Ollama server: {exc}") from exc
     models = payload.get("models", [])
     results: list[ModelMetadata] = []
+
     for model in models:
         model_id = model.get("name", "unknown")
-        results.append(ModelMetadata.from_raw(model_id, model))
+
+        # Fetch detailed information for each model
+        try:
+            detailed = await _fetch_ollama_model_details(client, source, model_id)
+            # Merge basic info with detailed info
+            merged = {**model, **detailed}
+            logger.debug(f"Merged keys for {model_id}: {list(merged.keys())}")
+            logger.debug(f"Has model_info: {'model_info' in merged}")
+            results.append(ModelMetadata.from_raw(model_id, merged))
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning("Failed to fetch details for %s: %s. Using basic info.", model_id, exc)
+            # Fallback to basic info if details fetch fails
+            results.append(ModelMetadata.from_raw(model_id, model))
+        except Exception as exc:
+            logger.error("Unexpected error fetching details for %s: %s. Skipping.", model_id, exc)
+            continue
 
     return results
 
@@ -75,7 +91,7 @@ async def _fetch_ollama_model_details(
 
     response = await client.post(
         url,
-        json={"model": model_id, "verbose": True},
+        json={"name": model_id, "verbose": True},
         headers=headers,
         timeout=DEFAULT_TIMEOUT,
     )
@@ -94,8 +110,8 @@ async def fetch_ollama_model_details(source: SourceEndpoint, model_id: str) -> d
         return await _fetch_ollama_model_details(client, source, model_id)
 
 
-async def fetch_litellm_models(client: httpx.AsyncClient, source: SourceEndpoint) -> list[ModelMetadata]:
-    """Fetch models from a LiteLLM / OpenAI-compatible endpoint."""
+async def fetch_openai_models(client: httpx.AsyncClient, source: SourceEndpoint) -> list[ModelMetadata]:
+    """Fetch models from an OpenAI-compatible endpoint."""
 
     url = f"{source.normalized_base_url}/v1/models"
     headers = _make_auth_headers(source.api_key)
@@ -183,8 +199,8 @@ async def fetch_source_models(source: SourceEndpoint) -> SourceModels:
     async with httpx.AsyncClient() as client:
         if source.type is SourceType.OLLAMA:
             models = await fetch_ollama_models(client, source)
-        elif source.type is SourceType.LITELLM:
-            models = await fetch_litellm_models(client, source)
+        elif source.type is SourceType.OPENAI:
+            models = await fetch_openai_models(client, source)
         else:  # pragma: no cover - defensive
             raise ValueError(f"Unsupported source type: {source.type}")
 

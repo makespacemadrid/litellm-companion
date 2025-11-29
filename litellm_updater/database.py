@@ -79,7 +79,7 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                 "ALTER TABLE providers ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 1"
             )
 
-        # Models.system_tags / user_tags / access_groups / sync_enabled
+        # Models.system_tags / user_tags / access_groups / sync_enabled / mapped_provider_id / mapped_model_id
         result = await conn.exec_driver_sql("PRAGMA table_info(models)")
         model_columns = {row[1] for row in result}
         if "system_tags" not in model_columns:
@@ -94,11 +94,62 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE models ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 1"
             )
+        if "mapped_provider_id" not in model_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE models ADD COLUMN mapped_provider_id INTEGER"
+            )
+        if "mapped_model_id" not in model_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE models ADD COLUMN mapped_model_id VARCHAR"
+            )
 
         # Normalize default values once columns exist
         await conn.exec_driver_sql(
             "UPDATE models SET system_tags='[]' WHERE system_tags IS NULL"
         )
+
+        # Update provider type constraint to allow 'compat' type
+        # SQLite doesn't support ALTER CHECK CONSTRAINT, so we need to check if the constraint allows 'compat'
+        # If not, we need to recreate the table (this is a one-time operation)
+        try:
+            result = await conn.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='providers'"
+            )
+            table_sql = result.fetchone()[0]
+            if "'compat'" not in table_sql and '"compat"' not in table_sql:
+                # Need to recreate providers table with updated constraint
+                await conn.exec_driver_sql(
+                    """
+                    CREATE TABLE providers_new (
+                        id INTEGER NOT NULL,
+                        name VARCHAR NOT NULL,
+                        base_url VARCHAR NOT NULL,
+                        type VARCHAR NOT NULL,
+                        api_key VARCHAR,
+                        prefix VARCHAR,
+                        default_ollama_mode VARCHAR,
+                        tags TEXT,
+                        sync_enabled BOOLEAN NOT NULL,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL,
+                        access_groups TEXT,
+                        PRIMARY KEY (id),
+                        CONSTRAINT check_provider_type CHECK (type IN ('ollama', 'openai', 'compat')),
+                        CONSTRAINT check_default_ollama_mode CHECK (default_ollama_mode IS NULL OR default_ollama_mode IN ('ollama', 'openai'))
+                    )
+                    """
+                )
+                # Copy data
+                await conn.exec_driver_sql(
+                    "INSERT INTO providers_new SELECT * FROM providers"
+                )
+                # Drop old table
+                await conn.exec_driver_sql("DROP TABLE providers")
+                # Rename new table
+                await conn.exec_driver_sql("ALTER TABLE providers_new RENAME TO providers")
+        except Exception:
+            # If constraint update fails, log but don't crash
+            logger.exception("Failed to update provider type constraint")
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

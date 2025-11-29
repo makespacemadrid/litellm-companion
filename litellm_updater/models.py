@@ -15,11 +15,17 @@ class SourceType(str, Enum):
     """Supported upstream source types."""
 
     OLLAMA = "ollama"
-    LITELLM = "litellm"
+    OPENAI = "openai"
+    COMPAT = "compat"
 
     def display_name(self) -> str:
         """Return human-readable name for UI display."""
-        return "Ollama" if self is SourceType.OLLAMA else "LiteLLM / OpenAI"
+        if self is SourceType.OLLAMA:
+            return "Ollama"
+        elif self is SourceType.OPENAI:
+            return "OpenAI"
+        else:
+            return "Compat"
 
 
 class SourceEndpoint(BaseModel):
@@ -119,14 +125,26 @@ def _extract_numeric(raw: dict, *keys: str) -> int | None:
 
         return None
 
+    # First try direct sections
     for section in (
         raw,
         raw.get("metadata"),
         raw.get("details"),
-        raw.get("model_info"),
         raw.get("summary"),
     ):
         found = _search(section)
+        if found is not None:
+            return found
+
+    # For Ollama, check model_info with architecture-specific keys
+    model_info = raw.get("model_info")
+    if isinstance(model_info, dict):
+        # Try architecture-specific keys (e.g., "qwen3.context_length")
+        for key, value in model_info.items():
+            if isinstance(value, (int, float)) and any(str(key).endswith(f".{candidate}") for candidate in keys):
+                return int(value)
+        # Also try direct keys
+        found = _search(model_info)
         if found is not None:
             return found
 
@@ -239,6 +257,25 @@ def _map_capabilities_to_supports(capabilities: list[str]) -> dict[str, Any]:
     return supports
 
 
+def _detect_ollama_mode(model_id: str, family: str, capabilities: list[str]) -> str:
+    """Detect LiteLLM mode for Ollama models based on name and family."""
+    name_lower = model_id.lower()
+    family_lower = family.lower() if family else ""
+
+    # Embedding models
+    if any(x in name_lower for x in ["embed", "embedding"]):
+        return "embedding"
+    if any(x in family_lower for x in ["bert", "nomic-bert"]):
+        return "embedding"
+
+    # Vision models use chat mode in LiteLLM
+    if any(x in name_lower for x in ["vision", "-vl", "vlm"]):
+        return "chat"
+
+    # Everything else defaults to chat
+    return "chat"
+
+
 def _extract_model_type(model_id: str, raw: dict, capabilities: list[str]) -> str | None:
     """Infer a model type such as embeddings or completion from known fields."""
 
@@ -249,7 +286,13 @@ def _extract_model_type(model_id: str, raw: dict, capabilities: list[str]) -> st
 
     details = raw.get("details")
     if isinstance(details, dict):
-        for key in ("type", "model_type", "family"):
+        # Use Ollama family to detect mode
+        family = details.get("family", "")
+        if family:
+            mode = _detect_ollama_mode(model_id, family, capabilities)
+            return mode
+
+        for key in ("type", "model_type"):
             value = details.get(key)
             if isinstance(value, str) and value:
                 return value
@@ -576,7 +619,23 @@ class ModelMetadata(BaseModel):
             for key, value in _collect(section).items():
                 merged.setdefault(key, value)
 
-        source_tags = normalize_tags(self.tags)
+        # Extract Ollama-specific metadata for tags
+        ollama_tags = []
+        details = self.raw.get("details")
+        if isinstance(details, dict):
+            family = details.get("family")
+            param_size = details.get("parameter_size")
+            quant = details.get("quantization_level")
+
+            if family:
+                ollama_tags.append(f"family:{family}")
+            if param_size:
+                ollama_tags.append(f"size:{param_size}")
+            if quant:
+                ollama_tags.append(f"quant:{quant}")
+
+        # Combine with source tags
+        source_tags = normalize_tags(self.tags + ollama_tags)
         if source_tags:
             merged["tags"] = source_tags
 
@@ -592,22 +651,43 @@ class ModelMetadata(BaseModel):
         if self.max_output_tokens:
             merged["max_output_tokens"] = self.max_output_tokens
 
+        # Extract embedding dimensions for embedding models
+        if self.model_type == "embedding" or "embedding" in self.capabilities:
+            embedding_length = _extract_numeric(self.raw, "embedding_length", "embedding_size", "output_vector_size")
+            if embedding_length:
+                merged["output_vector_size"] = embedding_length
+            # Don't set max_output_tokens for embeddings
+            merged.pop("max_output_tokens", None)
+
         # Map capabilities to supports_* fields
         supports_fields = _map_capabilities_to_supports(self.capabilities)
         merged.update(supports_fields)
 
-        # Add default pricing
-        pricing = _get_default_pricing(self.model_type, self.litellm_mode)
-        merged.update(pricing)
+        # Add default pricing (0.0 for Ollama, normal for others)
+        details = self.raw.get("details")
+        is_ollama = details and isinstance(details, dict) and details.get("family")
+        if is_ollama:
+            # Ollama models are local/free
+            merged["input_cost_per_token"] = 0.0
+            merged["output_cost_per_token"] = 0.0
+        else:
+            # Use default pricing for cloud models
+            pricing = _get_default_pricing(self.model_type, self.litellm_mode)
+            merged.update(pricing)
 
         # Map supported OpenAI parameters from Ollama parameters
         supported_params = self._get_openai_compatible_params()
         if supported_params:
             merged["supported_openai_params"] = supported_params
 
-        # Always set litellm_provider for Ollama models
-        if "litellm_provider" not in merged:
+        # Set litellm_provider based on source
+        if is_ollama and "litellm_provider" not in merged:
             merged["litellm_provider"] = "ollama"
+
+        # Add supports_system_messages and supports_native_streaming for chat models
+        if self.model_type in ("chat", "completion") or self.litellm_mode == "chat":
+            merged.setdefault("supports_system_messages", True)
+            merged.setdefault("supports_native_streaming", True)
 
         return merged
 

@@ -16,6 +16,8 @@ COPY pyproject.toml README.md /app/
 COPY litellm_updater /app/litellm_updater
 COPY example.env /app/env.example
 COPY scripts /app/scripts
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 
 RUN pip install --no-cache-dir .
 

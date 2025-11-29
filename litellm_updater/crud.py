@@ -255,7 +255,7 @@ async def create_model(
 
 async def upsert_model(
     session: AsyncSession, provider: Provider, metadata: ModelMetadata, full_update: bool = False
-) -> Model:
+) -> tuple[Model, bool]:
     """Create or update model from ModelMetadata.
 
     Args:
@@ -265,6 +265,9 @@ async def upsert_model(
         full_update: If True, updates all fields. If False (default), only touches last_seen.
                      During regular sync, full_update=False to preserve database state.
                      During refresh, full_update=True to fetch latest from provider.
+
+    Returns:
+        Tuple of (model, was_created) where was_created is True if model was newly created
     """
     existing = await get_model_by_provider_and_name(session, provider.id, metadata.id)
     now = datetime.now(UTC)
@@ -305,10 +308,10 @@ async def upsert_model(
             existing.orphaned_at = None
 
         existing.updated_at = now
-        return existing
+        return (existing, False)
     else:
         # Create new model
-        return await create_model(
+        new_model = await create_model(
             session,
             provider=provider,
             model_id=metadata.id,
@@ -322,6 +325,7 @@ async def upsert_model(
             raw_metadata=metadata.raw,
             system_tags=system_tags,
         )
+        return (new_model, True)
 
 
 async def mark_orphaned_models(
@@ -401,3 +405,94 @@ async def get_all_orphaned_models(session: AsyncSession) -> list[Model]:
         .order_by(Model.provider_id, Model.model_id)
     )
     return list(result.scalars().all())
+
+
+# Compat Models CRUD Operations
+
+
+async def get_or_create_compat_provider(session: AsyncSession) -> Provider:
+    """Get or create the special 'compat_models' provider."""
+    provider = await get_provider_by_name(session, "compat_models")
+    if provider is None:
+        # Create compat provider with access_group set to 'compat'
+        provider = await create_provider(
+            session,
+            name="compat_models",
+            base_url="http://localhost",  # Dummy URL, not used
+            type_="compat",
+            prefix=None,
+            access_groups=["compat"],
+            sync_enabled=False,  # Compat models are manually managed
+        )
+        await session.flush()
+    return provider
+
+
+async def get_all_compat_models(session: AsyncSession) -> list[Model]:
+    """Get all compat models."""
+    provider = await get_or_create_compat_provider(session)
+    models = await get_models_by_provider(session, provider.id, include_orphaned=False)
+    return models
+
+
+async def create_compat_model(
+    session: AsyncSession,
+    model_name: str,
+    mapped_provider_id: int | None = None,
+    mapped_model_id: str | None = None,
+    user_params: dict | None = None,
+    access_groups: list[str] | None = None,
+) -> Model:
+    """Create a new compat model."""
+    provider = await get_or_create_compat_provider(session)
+
+    # Default access_groups to ['compat'] if not provided
+    if access_groups is None:
+        access_groups = ["compat"]
+
+    # Create minimal metadata for compat model
+    model = Model(
+        provider_id=provider.id,
+        model_id=model_name,
+        model_type="compat",
+        litellm_params=json.dumps({}),
+        raw_metadata=json.dumps({"type": "compat"}),
+        mapped_provider_id=mapped_provider_id,
+        mapped_model_id=mapped_model_id,
+        first_seen=datetime.now(UTC),
+        last_seen=datetime.now(UTC),
+        is_orphaned=False,
+        user_modified=True,
+        sync_enabled=True,
+    )
+
+    if user_params:
+        model.user_params = json.dumps(user_params)
+
+    model.access_groups_list = normalize_tags(access_groups)
+
+    session.add(model)
+    await session.flush()
+    return model
+
+
+async def update_compat_model(
+    session: AsyncSession,
+    model: Model,
+    mapped_provider_id: int | None = None,
+    mapped_model_id: str | None = None,
+    user_params: dict | None = None,
+    access_groups: list[str] | None = None,
+) -> Model:
+    """Update a compat model's mapping and parameters."""
+    if mapped_provider_id is not None:
+        model.mapped_provider_id = mapped_provider_id
+    if mapped_model_id is not None:
+        model.mapped_model_id = mapped_model_id
+    if user_params is not None:
+        model.user_params = json.dumps(user_params)
+    if access_groups is not None:
+        model.access_groups_list = normalize_tags(access_groups)
+
+    model.updated_at = datetime.now(UTC)
+    return model

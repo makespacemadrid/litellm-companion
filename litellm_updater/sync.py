@@ -61,10 +61,22 @@ async def _delete_model_from_litellm(
     response.raise_for_status()
 
 
-def _build_connection_params(provider, model_id: str, mode: str | None) -> dict:
-    """Build litellm_params connection config for a model."""
+def _build_connection_params(provider, model, mode: str | None) -> dict:
+    """Build litellm_params connection config for a model.
+
+    Args:
+        provider: Provider database model
+        model: Model database model (used for compat mapping)
+        mode: Ollama mode (for Ollama providers)
+
+    Returns:
+        Dictionary with litellm_params
+    """
     litellm_params: dict = {}
-    if provider.type == "litellm":
+    model_id = model.model_id if hasattr(model, 'model_id') else str(model)
+
+    if provider.type == "openai":
+        # OpenAI-compatible providers always use openai/ prefix and /v1 endpoint
         litellm_params["model"] = f"openai/{model_id}"
         litellm_params["api_base"] = provider.base_url
         litellm_params["api_key"] = provider.api_key or DEFAULT_PROVIDER_API_KEY
@@ -76,6 +88,15 @@ def _build_connection_params(provider, model_id: str, mode: str | None) -> dict:
         else:
             litellm_params["model"] = f"ollama/{model_id}"
             litellm_params["api_base"] = provider.base_url
+    elif provider.type == "compat":
+        # Compat models: if mapped, use the mapped model's connection params
+        # Otherwise just use the model_id as-is (direct LiteLLM model reference)
+        if hasattr(model, 'mapped_provider_id') and model.mapped_provider_id:
+            # For compat models with mapping, we'll handle this in the caller
+            # by fetching the mapped provider and using its connection params
+            pass
+        # For now, just store the compat model name
+        litellm_params["model"] = model_id
     return litellm_params
 
 
@@ -85,6 +106,7 @@ async def _reconcile_litellm_for_provider(
     provider,
     provider_models,
     litellm_models: list[ModelMetadata],
+    session: "AsyncSession | None" = None,
 ) -> None:
     """Ensure LiteLLM has the expected models for a provider and remove stale ones."""
     if not config.litellm.configured:
@@ -116,23 +138,63 @@ async def _reconcile_litellm_for_provider(
             continue
 
         display_name = model.get_display_name(apply_prefix=True)
-        litellm_params = _build_connection_params(provider, model.model_id, ollama_mode)
+
+        # For compat models, inherit properties from mapped model
+        if provider.type == "compat" and model.mapped_provider_id and model.mapped_model_id:
+            from .crud import get_provider_by_id, get_model_by_provider_and_name
+            from .db_models import Model as DbModel
+
+            try:
+                # Get the mapped provider and model
+                if not session:
+                    logger.warning("Compat models require database session; skipping %s", model.model_id)
+                    continue
+
+                mapped_provider = await get_provider_by_id(session, model.mapped_provider_id)
+                mapped_model: DbModel | None = await get_model_by_provider_and_name(
+                    session, model.mapped_provider_id, model.mapped_model_id
+                )
+
+                if mapped_provider and mapped_model:
+                    # Use mapped model's connection params and metadata
+                    mapped_ollama_mode = mapped_model.ollama_mode or mapped_provider.default_ollama_mode or "ollama"
+                    litellm_params = _build_connection_params(mapped_provider, mapped_model, mapped_ollama_mode)
+
+                    # Use mapped model's metadata but keep compat model's tags and access_groups
+                    model_info = mapped_model.effective_params.copy()
+
+                    # Set litellm_provider based on mapped provider
+                    if mapped_provider.type == "openai":
+                        model_info["litellm_provider"] = "openai"
+                    elif mapped_provider.type == "ollama":
+                        model_info["mode"] = mapped_ollama_mode
+                        model_info["litellm_provider"] = "openai" if mapped_ollama_mode == "openai" else "ollama"
+                else:
+                    logger.warning("Mapped model not found for compat model %s", model.model_id)
+                    continue
+            except Exception as exc:
+                logger.error("Failed to get mapped model for compat %s: %s", model.model_id, exc)
+                continue
+        else:
+            # Regular model (non-compat)
+            litellm_params = _build_connection_params(provider, model, ollama_mode)
+            model_info = model.effective_params.copy()
+
+            if provider.type == "openai":
+                model_info["litellm_provider"] = "openai"
+            elif provider.type == "ollama":
+                model_info["mode"] = ollama_mode
+                model_info["litellm_provider"] = "openai" if ollama_mode == "openai" else "ollama"
+
         auto_tags = model.all_tags or generate_model_tags(
             provider_name=provider.name,
             provider_type=provider.type,
             metadata=ModelMetadata.from_raw(model.model_id, model.raw_metadata_dict),
             provider_tags=provider.tags_list,
-            mode=ollama_mode,
+            mode=ollama_mode if provider.type != "compat" else None,
         )
         litellm_params["tags"] = auto_tags
-
-        model_info = model.effective_params.copy()
         model_info["tags"] = auto_tags
-        if provider.type == "litellm":
-            model_info["litellm_provider"] = "openai"
-        elif provider.type == "ollama":
-            model_info["mode"] = ollama_mode
-            model_info["litellm_provider"] = "openai" if ollama_mode == "openai" else "ollama"
 
         # Add access_groups if configured (model overrides provider)
         effective_access_groups = model.get_effective_access_groups()
@@ -180,14 +242,21 @@ async def _reconcile_litellm_for_provider(
                         logger.warning("Failed reaching LiteLLM for delete %s: %s", litellm_model.id, exc)
 
 
-async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> dict[str, SourceModels]:
+async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> tuple[dict[str, SourceModels], dict]:
     """Run a single synchronization loop.
 
     If a database session is provided, models are persisted to the database.
-    Returns mapping from source name to fetched models.
+    Returns tuple of (mapping from source name to fetched models, sync statistics dict).
     """
 
     results: dict[str, SourceModels] = {}
+    stats = {
+        "sources_synced": 0,
+        "models_fetched": 0,
+        "models_added": 0,
+        "models_updated": 0,
+        "models_orphaned": 0,
+    }
     litellm_models: list[ModelMetadata] = []
     if config.litellm.configured:
         try:
@@ -196,9 +265,39 @@ async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> d
             logger.warning("Failed to fetch LiteLLM models: %s", exc)
     async with httpx.AsyncClient() as client:
         for source in config.sources:
+            # Check if provider has sync enabled (if using database session)
+            if session:
+                from .crud import get_provider_by_name
+
+                provider = await get_provider_by_name(session, source.name)
+                if provider and not provider.sync_enabled:
+                    logger.info("Skipping provider %s (sync disabled)", source.name)
+                    continue
+
+                # Skip fetch for compat providers - they don't have upstream models
+                if provider and provider.type == "compat":
+                    logger.info("Skipping fetch for compat provider %s (models are manually created)", source.name)
+                    # Still process LiteLLM reconciliation for compat models below
+                    stats["sources_synced"] += 1
+
+                    # Reconcile compat models with LiteLLM
+                    if config.litellm.configured:
+                        try:
+                            from .crud import get_models_by_provider
+
+                            db_models = await get_models_by_provider(session, provider.id, include_orphaned=False)
+                            await _reconcile_litellm_for_provider(
+                                client, config, provider, db_models, litellm_models, session
+                            )
+                        except Exception:
+                            logger.exception("Failed reconciling LiteLLM models for compat provider %s", source.name)
+                    continue
+
             try:
                 source_models = await fetch_source_models(source)
                 results[source.name] = source_models
+                stats["sources_synced"] += 1
+                stats["models_fetched"] += len(source_models.models)
             except httpx.RequestError as exc:  # pragma: no cover - runtime logging
                 logger.warning(
                     "Failed reaching source %s at %s: %s",
@@ -228,13 +327,18 @@ async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> d
                         active_model_ids = set()
                         for model in source_models.models:
                             try:
-                                await upsert_model(session, provider, model)
+                                _, was_created = await upsert_model(session, provider, model, full_update=True)
                                 active_model_ids.add(model.id)
+                                if was_created:
+                                    stats["models_added"] += 1
+                                else:
+                                    stats["models_updated"] += 1
                             except Exception as exc:
                                 logger.error("Failed to persist model %s from %s: %s", model.id, source.name, exc)
 
                         # Mark models not in this fetch as orphaned
                         orphaned_count = await mark_orphaned_models(session, provider, active_model_ids)
+                        stats["models_orphaned"] += orphaned_count
                         if orphaned_count > 0:
                             logger.info("Marked %d models as orphaned for provider %s", orphaned_count, source.name)
 
@@ -257,7 +361,7 @@ async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> d
                     if provider:
                         db_models = await get_models_by_provider(session, provider.id, include_orphaned=True)
                         await _reconcile_litellm_for_provider(
-                            client, config, provider, db_models, litellm_models
+                            client, config, provider, db_models, litellm_models, session
                         )
                 except Exception:
                     logger.exception("Failed reconciling LiteLLM models for provider %s", source.name)
@@ -278,7 +382,16 @@ async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> d
                         )
                     except Exception:  # pragma: no cover - unexpected errors
                         logger.exception("Unexpected error registering model %s from %s", model.id, source.name)
-    return results
+
+    logger.info(
+        "Sync complete: %d sources, %d models fetched, %d added, %d updated, %d orphaned",
+        stats["sources_synced"],
+        stats["models_fetched"],
+        stats["models_added"],
+        stats["models_updated"],
+        stats["models_orphaned"],
+    )
+    return (results, stats)
 
 
 async def start_scheduler(
@@ -324,14 +437,16 @@ async def start_scheduler(
             if session_maker:
                 async with session_maker() as session:
                     try:
-                        results = await sync_once(config, session)
+                        results, stats = await sync_once(config, session)
                         await store_callback(results)
+                        logger.info("Sync statistics: %s", stats)
                     except Exception:  # pragma: no cover - unexpected errors
                         logger.exception("Sync loop failed")
                         await session.rollback()
             else:
-                results = await sync_once(config)
+                results, stats = await sync_once(config)
                 await store_callback(results)
+                logger.info("Sync statistics: %s", stats)
         except Exception:  # pragma: no cover - unexpected errors
             logger.exception("Sync loop failed")
 
