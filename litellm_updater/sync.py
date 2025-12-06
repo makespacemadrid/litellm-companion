@@ -85,6 +85,7 @@ def _build_connection_params(provider, model, mode: str | None) -> dict:
             litellm_params["model"] = f"openai/{model_id}"
             api_base = provider.base_url.rstrip("/")
             litellm_params["api_base"] = f"{api_base}/v1"
+            litellm_params["api_key"] = provider.api_key or DEFAULT_PROVIDER_API_KEY
         else:
             litellm_params["model"] = f"ollama/{model_id}"
             litellm_params["api_base"] = provider.base_url

@@ -13,6 +13,8 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
     command: >
       uvicorn litellm_updater.web:create_app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS:-1} --log-level ${LOG_LEVEL:-info}
+    networks:
+      - litellm
 
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
@@ -29,15 +31,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
+    networks:
+      - litellm
   db:
     image: postgres:16
     restart: always
     container_name: litellm_db
     env_file:
       - .env
-    ports:
-      - "5432:5432"
+#    ports:
+#      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,7 +48,8 @@ services:
       interval: 1s
       timeout: 5s
       retries: 10
-
+    networks:
+      - litellm
 #  env-sync:
 #    build: .
 #    image: litellm-updater:latest
@@ -67,5 +71,7 @@ services:
 #    depends_on:
 #      - litellm-updater
 
+networks:
+  litellm:
 volumes:
   postgres_data:

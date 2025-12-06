@@ -152,7 +152,9 @@ async def lifespan(app: FastAPI):
     db_url = get_database_url()
     engine = create_engine(db_url)
     try:
-        run_migrations(db_url=db_url)
+        # Run migrations in executor to avoid nested event loop conflict
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, run_migrations, db_url)
         logger.info("Database migrations applied")
     except CommandError as exc:
         logger.warning("Alembic migration scripts missing (%s); applying safety schema fixups", exc)
@@ -925,6 +927,7 @@ def create_app() -> FastAPI:
                     # OpenAI mode uses /v1 endpoint
                     api_base = source_endpoint.normalized_base_url.rstrip("/")
                     litellm_params["api_base"] = f"{api_base}/v1"
+                    litellm_params.setdefault("api_key", source_endpoint.api_key or DEFAULT_LITELLM_API_KEY)
                 else:
                     litellm_params["model"] = f"ollama/{model_metadata.id}"
                     litellm_params["api_base"] = source_endpoint.normalized_base_url
@@ -1565,6 +1568,7 @@ def create_app() -> FastAPI:
                     litellm_params["model"] = f"openai/{mapped_model.model_id}"
                     api_base = mapped_provider.base_url.rstrip("/")
                     litellm_params["api_base"] = f"{api_base}/v1"
+                    litellm_params.setdefault("api_key", mapped_provider.api_key or DEFAULT_LITELLM_API_KEY)
                 else:
                     litellm_params["model"] = f"ollama/{mapped_model.model_id}"
                     litellm_params["api_base"] = mapped_provider.base_url
@@ -1622,6 +1626,7 @@ def create_app() -> FastAPI:
                     # OpenAI mode uses /v1 endpoint
                     api_base = provider.base_url.rstrip("/")
                     litellm_params["api_base"] = f"{api_base}/v1"
+                    litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
                 else:
                     litellm_params["model"] = f"ollama/{model.model_id}"
                     litellm_params["api_base"] = provider.base_url
@@ -1771,6 +1776,7 @@ def create_app() -> FastAPI:
                                 litellm_params["model"] = f"openai/{mapped_model.model_id}"
                                 api_base = mapped_provider.base_url.rstrip("/")
                                 litellm_params["api_base"] = f"{api_base}/v1"
+                                litellm_params.setdefault("api_key", mapped_provider.api_key or DEFAULT_LITELLM_API_KEY)
                             else:
                                 litellm_params["model"] = f"ollama/{mapped_model.model_id}"
                                 litellm_params["api_base"] = mapped_provider.base_url
@@ -1834,6 +1840,7 @@ def create_app() -> FastAPI:
                             # OpenAI mode uses /v1 endpoint
                             api_base = provider.base_url.rstrip("/")
                             litellm_params["api_base"] = f"{api_base}/v1"
+                            litellm_params.setdefault("api_key", provider.api_key or DEFAULT_LITELLM_API_KEY)
                         else:
                             litellm_params["model"] = f"ollama/{model.model_id}"
                             litellm_params["api_base"] = provider.base_url
@@ -2017,9 +2024,10 @@ def create_app() -> FastAPI:
                     # OpenAI mode uses /v1 endpoint
                     api_base = source_endpoint.normalized_base_url.rstrip("/")
                     litellm_params["api_base"] = f"{api_base}/v1"
-            else:
-                litellm_params["model"] = f"ollama/{model_metadata.id}"
-                litellm_params["api_base"] = source_endpoint.normalized_base_url
+                    litellm_params.setdefault("api_key", source_endpoint.api_key or DEFAULT_LITELLM_API_KEY)
+                else:
+                    litellm_params["model"] = f"ollama/{model_metadata.id}"
+                    litellm_params["api_base"] = source_endpoint.normalized_base_url
 
             auto_tags = generate_model_tags(
                 provider_name=source,
