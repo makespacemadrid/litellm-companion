@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from .db_models import Config, Model, Provider
 from .models import ModelMetadata, SourceEndpoint
+from .pricing_profiles import apply_pricing_overrides
 from .tags import generate_model_tags, normalize_tags
 
 
@@ -25,6 +26,8 @@ async def get_config(session: AsyncSession) -> Config:
             litellm_base_url=None,
             litellm_api_key=None,
             sync_interval_seconds=300,
+            default_pricing_profile=None,
+            default_pricing_override=None,
         )
         session.add(config)
         await session.flush()
@@ -37,6 +40,8 @@ async def update_config(
     litellm_base_url: str | None = None,
     litellm_api_key: str | None = None,
     sync_interval_seconds: int | None = None,
+    default_pricing_profile: str | None = None,
+    default_pricing_override: dict | None = None,
 ) -> Config:
     """Update global configuration."""
     config = await get_config(session)
@@ -47,6 +52,10 @@ async def update_config(
         config.litellm_api_key = litellm_api_key or None
     if sync_interval_seconds is not None:
         config.sync_interval_seconds = sync_interval_seconds
+    if default_pricing_profile is not None:
+        config.default_pricing_profile = default_pricing_profile or None
+    if default_pricing_override is not None:
+        config.default_pricing_override_dict = default_pricing_override
 
     config.updated_at = datetime.now(UTC)
     return config
@@ -84,6 +93,8 @@ async def create_provider(
     tags: list[str] | None = None,
     access_groups: list[str] | None = None,
     sync_enabled: bool = True,
+    pricing_profile: str | None = None,
+    pricing_override: dict | None = None,
 ) -> Provider:
     """Create a new provider."""
     if type_ == "ollama" and default_ollama_mode is None:
@@ -96,9 +107,11 @@ async def create_provider(
         prefix=prefix,
         default_ollama_mode=default_ollama_mode,
         sync_enabled=sync_enabled,
+        pricing_profile=pricing_profile,
     )
     provider.tags_list = normalize_tags(tags)
     provider.access_groups_list = normalize_tags(access_groups)
+    provider.pricing_override_dict = pricing_override
     session.add(provider)
     await session.flush()
     return provider
@@ -130,6 +143,8 @@ async def update_provider(
     tags: list[str] | None = None,
     access_groups: list[str] | None = None,
     sync_enabled: bool | None = None,
+    pricing_profile: str | None = None,
+    pricing_override: dict | None = None,
 ) -> Provider:
     """Update existing provider."""
     if name is not None:
@@ -152,6 +167,10 @@ async def update_provider(
         provider.access_groups_list = normalize_tags(access_groups)
     if sync_enabled is not None:
         provider.sync_enabled = sync_enabled
+    if pricing_profile is not None:
+        provider.pricing_profile = pricing_profile
+    if pricing_override is not None:
+        provider.pricing_override_dict = pricing_override
 
     provider.updated_at = datetime.now(UTC)
     return provider
@@ -254,7 +273,11 @@ async def create_model(
 
 
 async def upsert_model(
-    session: AsyncSession, provider: Provider, metadata: ModelMetadata, full_update: bool = False
+    session: AsyncSession,
+    provider: Provider,
+    metadata: ModelMetadata,
+    full_update: bool = False,
+    config: Config | None = None,
 ) -> tuple[Model, bool]:
     """Create or update model from ModelMetadata.
 
@@ -279,7 +302,9 @@ async def upsert_model(
         provider_tags=provider.tags_list,
         mode=ollama_mode,
     )
-    litellm_fields = metadata.litellm_fields.copy()
+    litellm_fields = apply_pricing_overrides(
+        metadata.litellm_fields.copy(), config=config, provider=provider
+    )
     if system_tags:
         litellm_fields["tags"] = system_tags
 
@@ -363,6 +388,9 @@ async def update_model_params(
     user_tags: list[str] | None = None,
     access_groups: list[str] | None = None,
     sync_enabled: bool | None = None,
+    pricing_profile: str | None = None,
+    pricing_override: dict | None = None,
+    config: Config | None = None,
 ) -> Model:
     """Update model with user-edited parameters, tags, access_groups, and sync settings."""
     if user_params is not None:
@@ -373,11 +401,23 @@ async def update_model_params(
         model.access_groups_list = normalize_tags(access_groups)
     if sync_enabled is not None:
         model.sync_enabled = sync_enabled
+    if pricing_profile is not None:
+        model.pricing_profile = pricing_profile
+    if pricing_override is not None:
+        model.pricing_override_dict = pricing_override
 
-    if user_params is not None or user_tags is not None or access_groups is not None or sync_enabled is not None:
-        if user_params is not None or user_tags is not None or access_groups is not None:
+    if user_params is not None or user_tags is not None or access_groups is not None or sync_enabled is not None or pricing_profile is not None or pricing_override is not None:
+        if user_params is not None or user_tags is not None or access_groups is not None or pricing_profile is not None or pricing_override is not None:
             model.user_modified = True
         model.updated_at = datetime.now(UTC)
+
+    if pricing_profile is not None or pricing_override is not None:
+        model.litellm_params_dict = apply_pricing_overrides(
+            model.litellm_params_dict,
+            config=config,
+            provider=model.provider,
+            model=model,
+        )
     return model
 
 

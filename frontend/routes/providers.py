@@ -42,6 +42,22 @@ def _normalize_optional_str(raw: str | None) -> str | None:
     return raw or None
 
 
+def _parse_pricing_override(input_cost: str | None, output_cost: str | None) -> dict | None:
+    """Parse numeric pricing overrides."""
+    pricing: dict[str, float] = {}
+    if input_cost not in (None, ""):
+        try:
+            pricing["input_cost_per_token"] = float(input_cost)
+        except ValueError:
+            pass
+    if output_cost not in (None, ""):
+        try:
+            pricing["output_cost_per_token"] = float(output_cost)
+        except ValueError:
+            pass
+    return pricing or None
+
+
 @router.get("")
 @router.get("/")
 async def list_providers(session: AsyncSession = Depends(get_session)):
@@ -59,6 +75,8 @@ async def list_providers(session: AsyncSession = Depends(get_session)):
             "tags": p.tags_list,
             "access_groups": p.access_groups_list,
             "sync_enabled": p.sync_enabled,
+            "pricing_profile": p.pricing_profile,
+            "pricing_override": p.pricing_override_dict,
             "created_at": p.created_at.isoformat(),
             "updated_at": p.updated_at.isoformat()
         }
@@ -127,7 +145,9 @@ async def get_provider(provider_id: int, session: AsyncSession = Depends(get_ses
         "default_ollama_mode": provider.default_ollama_mode,
         "tags": provider.tags_list,
         "access_groups": provider.access_groups_list,
-        "sync_enabled": provider.sync_enabled
+        "sync_enabled": provider.sync_enabled,
+        "pricing_profile": provider.pricing_profile,
+        "pricing_override": provider.pricing_override_dict,
     }
 
 
@@ -143,6 +163,9 @@ async def add_provider(
     tags: str | None = Form(None),
     access_groups: str | None = Form(None),
     sync_enabled: bool | None = Form(True),
+    pricing_profile: str | None = Form(None),
+    pricing_input_cost_per_token: str | None = Form(None),
+    pricing_output_cost_per_token: str | None = Form(None),
     session: AsyncSession = Depends(get_session)
 ):
     """Create new provider."""
@@ -160,6 +183,10 @@ async def add_provider(
         tags=_parse_csv_list(tags),
         access_groups=_parse_csv_list(access_groups),
         sync_enabled=sync_enabled_val,
+        pricing_profile=_normalize_optional_str(pricing_profile),
+        pricing_override=_parse_pricing_override(
+            pricing_input_cost_per_token, pricing_output_cost_per_token
+        ),
     )
     return {"id": provider.id, "name": provider.name}
 
@@ -219,6 +246,9 @@ async def update_provider_endpoint(
     tags: str | None = Form(None),
     access_groups: str | None = Form(None),
     sync_enabled: bool | None = Form(None),
+    pricing_profile: str | None = Form(None),
+    pricing_input_cost_per_token: str | None = Form(None),
+    pricing_output_cost_per_token: str | None = Form(None),
     session: AsyncSession = Depends(get_session)
 ):
     """Update provider."""
@@ -237,7 +267,11 @@ async def update_provider_endpoint(
         default_ollama_mode=_normalize_optional_str(default_ollama_mode),
         tags=_parse_csv_list(tags),
         access_groups=_parse_csv_list(access_groups),
-        sync_enabled=_parse_bool(sync_enabled)
+        sync_enabled=_parse_bool(sync_enabled),
+        pricing_profile=_normalize_optional_str(pricing_profile),
+        pricing_override=_parse_pricing_override(
+            pricing_input_cost_per_token, pricing_output_cost_per_token
+        ),
     )
 
     return {"status": "updated"}

@@ -65,6 +65,9 @@ def _slim_ollama_payload(payload: dict) -> dict:
         if key in payload:
             slim[key] = payload[key]
 
+    if payload.get("litellm_provider"):
+        slim["litellm_provider"] = payload["litellm_provider"]
+
     if isinstance(payload.get("parameters"), str):
         slim["parameters"] = payload["parameters"]
 
@@ -125,6 +128,7 @@ async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint)
         try:
             detailed = await _fetch_ollama_model_details(client, source, model_id)
             merged = {**model, **_clean_ollama_payload(detailed)}
+            merged.setdefault("litellm_provider", "ollama")
             logger.debug(f"Merged keys for {model_id}: {list(merged.keys())}")
             logger.debug(f"Has model_info: {'model_info' in merged}")
             metadata = ModelMetadata.from_raw(model_id, merged)
@@ -139,6 +143,7 @@ async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint)
 
         # Fallback to basic info if details fetch is disabled or failed
         cleaned_basic = _clean_ollama_payload(model)
+        cleaned_basic.setdefault("litellm_provider", "ollama")
         metadata = ModelMetadata.from_raw(model_id, cleaned_basic)
         metadata.raw = _slim_ollama_payload(cleaned_basic)
         results.append(metadata)

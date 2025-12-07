@@ -66,23 +66,6 @@ def run_migrations(
     config_path = Path(config_path) if config_path else base_dir / "alembic.ini"
     script_location = Path(script_location) if script_location else base_dir / "alembic"
 
-    # Check if alembic_version table exists and has the latest version
-    # to avoid blocking on already-migrated databases
-    if db_url.startswith("sqlite"):
-        db_path = db_url.replace("sqlite:///", "")
-        try:
-            conn = sqlite3.connect(db_path, timeout=5.0)
-            cursor = conn.cursor()
-            cursor.execute("SELECT version_num FROM alembic_version LIMIT 1")
-            version = cursor.fetchone()
-            conn.close()
-            if version:
-                logger.info(f"Database already at version {version[0]}, skipping migrations")
-                return
-        except (sqlite3.OperationalError, sqlite3.DatabaseError):
-            # Table doesn't exist or can't be queried, continue with migrations
-            pass
-
     alembic_config = Config(str(config_path))
     alembic_config.set_main_option("script_location", str(script_location))
     alembic_config.set_main_option("sqlalchemy.url", db_url)
@@ -116,6 +99,10 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE providers ADD COLUMN sync_enabled INTEGER NOT NULL DEFAULT 1"
             )
+        if "pricing_profile" not in provider_columns:
+            await conn.exec_driver_sql("ALTER TABLE providers ADD COLUMN pricing_profile VARCHAR")
+        if "pricing_override" not in provider_columns:
+            await conn.exec_driver_sql("ALTER TABLE providers ADD COLUMN pricing_override TEXT")
 
         # Models.system_tags / user_tags / access_groups / sync_enabled / mapped_provider_id / mapped_model_id
         result = await conn.exec_driver_sql("PRAGMA table_info(models)")
@@ -140,11 +127,23 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             await conn.exec_driver_sql(
                 "ALTER TABLE models ADD COLUMN mapped_model_id VARCHAR"
             )
+        if "pricing_profile" not in model_columns:
+            await conn.exec_driver_sql("ALTER TABLE models ADD COLUMN pricing_profile VARCHAR")
+        if "pricing_override" not in model_columns:
+            await conn.exec_driver_sql("ALTER TABLE models ADD COLUMN pricing_override TEXT")
 
         # Normalize default values once columns exist
         await conn.exec_driver_sql(
             "UPDATE models SET system_tags='[]' WHERE system_tags IS NULL"
         )
+
+        # Add pricing fields to config
+        result = await conn.exec_driver_sql("PRAGMA table_info(config)")
+        config_columns = {row[1] for row in result}
+        if "default_pricing_profile" not in config_columns:
+            await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN default_pricing_profile VARCHAR")
+        if "default_pricing_override" not in config_columns:
+            await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN default_pricing_override TEXT")
 
         # Update provider type constraint to allow 'compat' type
         # SQLite doesn't support ALTER CHECK CONSTRAINT, so we need to check if the constraint allows 'compat'

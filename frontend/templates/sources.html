@@ -45,6 +45,23 @@
           <option value="openai">OpenAI</option>
         </select>
 
+        <label>Pricing Profile</label>
+        <select id="config-pricing-profile">
+          <option value="">Use provider/global</option>
+          <option value="gpt-4o">OpenAI - gpt-4o</option>
+          <option value="gpt-4o-mini">OpenAI - gpt-4o-mini</option>
+          <option value="gpt-4.1">OpenAI - gpt-4.1</option>
+          <option value="o1-mini">OpenAI - o1-mini</option>
+        </select>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem;">
+          <label>Input $/token
+            <input id="config-pricing-input" type="number" step="0.000000001" />
+          </label>
+          <label>Output $/token
+            <input id="config-pricing-output" type="number" step="0.000000001" />
+          </label>
+        </div>
+
         <label>Tags (comma separated)</label>
         <input id="config-tags" type="text" placeholder="team-a, prod, gpu" />
         <p class="muted" style="margin-top: -0.5rem; margin-bottom: 0.5rem;">Base tags from provider and capabilities are applied automatically.</p>
@@ -721,6 +738,9 @@ async function openConfigureModal(modelId) {
     const currentAccessGroups = model.access_groups || [];
     document.getElementById('config-access-groups').value = currentAccessGroups.join(', ');
     document.getElementById('config-sync-enabled').checked = model.sync_enabled !== false;
+    document.getElementById('config-pricing-profile').value = model.pricing_profile || '';
+    document.getElementById('config-pricing-input').value = (model.pricing_override || {}).input_cost_per_token ?? '';
+    document.getElementById('config-pricing-output').value = (model.pricing_override || {}).output_cost_per_token ?? '';
 
     document.getElementById('configure-modal').style.display = 'block';
   } catch (error) {
@@ -760,6 +780,9 @@ async function saveModelConfig() {
   const tags = parseTagsInput(document.getElementById('config-tags').value);
   const accessGroups = parseTagsInput(document.getElementById('config-access-groups').value);
   const syncEnabled = document.getElementById('config-sync-enabled').checked;
+  const pricingProfile = document.getElementById('config-pricing-profile').value;
+  const pricingInput = document.getElementById('config-pricing-input').value;
+  const pricingOutput = document.getElementById('config-pricing-output').value;
 
   let params;
   try {
@@ -770,10 +793,20 @@ async function saveModelConfig() {
   }
 
   try {
+    const payload = {
+      params,
+      tags,
+      access_groups: accessGroups,
+      sync_enabled: syncEnabled,
+      pricing_profile: pricingProfile || null,
+    };
+    if (pricingInput) payload.input_cost_per_token = parseFloat(pricingInput);
+    if (pricingOutput) payload.output_cost_per_token = parseFloat(pricingOutput);
+
     const response = await fetch(`/api/models/${modelId}/params`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ params, tags, access_groups: accessGroups, sync_enabled: syncEnabled })
+      body: JSON.stringify(payload)
     });
 
     const result = await response.json();

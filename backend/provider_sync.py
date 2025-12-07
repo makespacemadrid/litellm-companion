@@ -54,7 +54,8 @@ async def sync_provider(session, config, provider, push_to_litellm: bool = True)
                 session,
                 provider,
                 model_metadata,
-                full_update=True
+                full_update=True,
+                config=config,
             )
 
             active_model_ids.add(model_metadata.id)

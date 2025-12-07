@@ -49,6 +49,7 @@ from .sources import (
 )
 from .sync import start_scheduler, sync_once
 from .tags import generate_model_tags, normalize_tags, parse_tags_input
+from shared import __version__ as APP_VERSION
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -241,8 +242,14 @@ async def _add_model_to_litellm(
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="LiteLLM Updater", description="Sync models into LiteLLM", lifespan=lifespan)
+    app = FastAPI(
+        title="LiteLLM Updater",
+        description="Sync models into LiteLLM",
+        lifespan=lifespan,
+        version=APP_VERSION,
+    )
     templates = Jinja2Templates(directory="litellm_updater/templates")
+    templates.env.globals["APP_VERSION"] = APP_VERSION
     app.mount("/static", StaticFiles(directory="litellm_updater/static"), name="static")
 
     @app.exception_handler(RequestValidationError)
@@ -1360,7 +1367,10 @@ def create_app() -> FastAPI:
 
         # Update the model in database with full_update=True to refresh all fields
         try:
-            _, _ = await upsert_model(session, provider, model_metadata, full_update=True)
+            from .crud import get_config
+
+            config = await get_config(session)
+            _, _ = await upsert_model(session, provider, model_metadata, full_update=True, config=config)
             await session.commit()
             logger.info("Refreshed model %s from provider %s", model.model_id, provider.name)
 

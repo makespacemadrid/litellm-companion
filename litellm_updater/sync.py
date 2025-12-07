@@ -331,7 +331,9 @@ async def sync_once(config: AppConfig, session: AsyncSession | None = None) -> t
                         active_model_ids = set()
                         for model in source_models.models:
                             try:
-                                _, was_created = await upsert_model(session, provider, model, full_update=True)
+                                _, was_created = await upsert_model(
+                                    session, provider, model, full_update=True, config=config
+                                )
                                 active_model_ids.add(model.id)
                                 if was_created:
                                     stats["models_added"] += 1

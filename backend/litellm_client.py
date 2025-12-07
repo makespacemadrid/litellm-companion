@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from shared.models import ModelMetadata
+from shared.pricing_profiles import apply_pricing_overrides
 from shared.sources import _make_auth_headers, DEFAULT_TIMEOUT
 from shared.tags import generate_model_tags
 
@@ -110,21 +111,23 @@ async def reconcile_litellm_models(session, config, provider, models, remove_orp
                         config.litellm_base_url,
                         config.litellm_api_key,
                         provider,
-                        model
+                        model,
+                        config=config,
                     )
                     stats["added"] += 1
                     logger.info("Added model %s to LiteLLM", model.model_id)
                 else:
                     # Model exists, check if update needed
                     litellm_model = litellm_index[unique_id_tag]
-                    if _needs_update(provider, model, litellm_model):
+                    if _needs_update(provider, model, litellm_model, config=config):
                         await update_model_in_litellm(
                             client,
                             config.litellm_base_url,
                             config.litellm_api_key,
                             provider,
                             model,
-                            litellm_model
+                            litellm_model,
+                            config=config,
                         )
                         stats["updated"] += 1
                         logger.info("Updated model %s in LiteLLM", model.model_id)
@@ -174,13 +177,25 @@ async def fetch_litellm_models(client: httpx.AsyncClient, base_url: str, api_key
         raise
 
 
-async def push_model_to_litellm(client: httpx.AsyncClient, base_url: str, api_key: str | None, provider, model):
+async def push_model_to_litellm(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str | None,
+    provider,
+    model,
+    config=None,
+):
     """Push a single model to LiteLLM."""
     # Build litellm_params
     litellm_params = _build_litellm_params(provider, model)
 
-    # Build model_info
-    model_info = model.effective_params.copy()
+    # Build model_info with pricing overrides
+    model_info = apply_pricing_overrides(
+        model.effective_params.copy(),
+        config=config,
+        provider=provider,
+        model=model,
+    )
 
     # Set litellm_provider
     ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama"
@@ -234,7 +249,15 @@ async def push_model_to_litellm(client: httpx.AsyncClient, base_url: str, api_ke
     response.raise_for_status()
 
 
-async def update_model_in_litellm(client: httpx.AsyncClient, base_url: str, api_key: str | None, provider, model, litellm_model):
+async def update_model_in_litellm(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str | None,
+    provider,
+    model,
+    litellm_model,
+    config=None,
+):
     """Update an existing model in LiteLLM."""
     # First delete the old model
     model_id = litellm_model.get('model_info', {}).get('id')
@@ -245,7 +268,7 @@ async def update_model_in_litellm(client: httpx.AsyncClient, base_url: str, api_
     await delete_model_from_litellm(client, base_url, api_key, model_id)
 
     # Then create the new version
-    await push_model_to_litellm(client, base_url, api_key, provider, model)
+    await push_model_to_litellm(client, base_url, api_key, provider, model, config=config)
 
 
 async def delete_model_from_litellm(client: httpx.AsyncClient, base_url: str, api_key: str | None, model_id: str):
@@ -259,7 +282,7 @@ async def delete_model_from_litellm(client: httpx.AsyncClient, base_url: str, ap
     response.raise_for_status()
 
 
-def _needs_update(provider, model, litellm_model) -> bool:
+def _needs_update(provider, model, litellm_model, config=None) -> bool:
     """
     Check if a model in LiteLLM needs to be updated based on database model.
 
@@ -296,6 +319,21 @@ def _needs_update(provider, model, litellm_model) -> bool:
     if db_access_groups != ll_access_groups:
         logger.debug("Access groups changed: %s != %s", db_access_groups, ll_access_groups)
         return True
+
+    # Check pricing differences
+    effective_info = apply_pricing_overrides(
+        model.effective_params,
+        config=config,
+        provider=provider,
+        model=model,
+    )
+    ll_info = litellm_model.get('model_info', {})
+    for key, value in effective_info.items():
+        if "cost" not in key:
+            continue
+        if ll_info.get(key) != value:
+            logger.debug("Pricing changed for %s: %s != %s", key, ll_info.get(key), value)
+            return True
 
     return False
 

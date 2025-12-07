@@ -6,6 +6,24 @@
   <form onsubmit="saveDestination(event)">
     <label>Base URL <input type="text" name="litellm_base_url" value="{{ config.litellm.base_url or '' }}" /></label>
     <label>API Key <input type="text" name="litellm_api_key" value="{{ config.litellm.api_key or '' }}" /></label>
+    <label>
+      Default Pricing Profile
+      <select name="default_pricing_profile">
+        <option value="" {% if not config.default_pricing_profile %}selected{% endif %}>None</option>
+        <option value="gpt-4o" {% if config.default_pricing_profile == 'gpt-4o' %}selected{% endif %}>OpenAI - gpt-4o</option>
+        <option value="gpt-4o-mini" {% if config.default_pricing_profile == 'gpt-4o-mini' %}selected{% endif %}>OpenAI - gpt-4o-mini</option>
+        <option value="gpt-4.1" {% if config.default_pricing_profile == 'gpt-4.1' %}selected{% endif %}>OpenAI - gpt-4.1</option>
+        <option value="o1-mini" {% if config.default_pricing_profile == 'o1-mini' %}selected{% endif %}>OpenAI - o1-mini</option>
+      </select>
+    </label>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+      <label>Input $/token
+        <input type="number" step="0.000000001" name="default_input_cost_per_token" value="{{ (config.default_pricing_override or {}).get('input_cost_per_token', '') }}" />
+      </label>
+      <label>Output $/token
+        <input type="number" step="0.000000001" name="default_output_cost_per_token" value="{{ (config.default_pricing_override or {}).get('output_cost_per_token', '') }}" />
+      </label>
+    </div>
     <p class="muted">Leave Base URL empty to disable LiteLLM synchronization.</p>
     <button type="submit">Save destination</button>
   </form>
@@ -251,6 +269,9 @@ async function openEditProvider(id) {
     document.getElementById('edit-default-ollama-mode').value = provider.default_ollama_mode || '';
     document.getElementById('edit-tags').value = (provider.tags || []).join(', ');
     document.getElementById('edit-access-groups').value = (provider.access_groups || []).join(', ');
+    document.getElementById('edit-pricing-profile').value = provider.pricing_profile || '';
+    document.getElementById('edit-pricing-input').value = (provider.pricing_override || {}).input_cost_per_token ?? '';
+    document.getElementById('edit-pricing-output').value = (provider.pricing_override || {}).output_cost_per_token ?? '';
     document.getElementById('edit-sync-enabled').checked = provider.sync_enabled !== false;
     toggleEditOllamaFields();
 
@@ -319,6 +340,24 @@ document.addEventListener('DOMContentLoaded', () => {
         <label>Prefix <input type="text" name="prefix" placeholder="e.g., mks-ollama" /></label>
         <label>Tags <input type="text" name="tags" placeholder="Comma separated (e.g., team-a, prod)" /></label>
         <label>Access Groups <input type="text" name="access_groups" placeholder="Comma separated (e.g., compat, tts)" /></label>
+        <label>
+          Pricing Profile
+          <select name="pricing_profile">
+            <option value="">Use global/default</option>
+            <option value="gpt-4o">OpenAI - gpt-4o</option>
+            <option value="gpt-4o-mini">OpenAI - gpt-4o-mini</option>
+            <option value="gpt-4.1">OpenAI - gpt-4.1</option>
+            <option value="o1-mini">OpenAI - o1-mini</option>
+          </select>
+        </label>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+          <label>Input $/token
+            <input type="number" step="0.000000001" name="pricing_input_cost_per_token" />
+          </label>
+          <label>Output $/token
+            <input type="number" step="0.000000001" name="pricing_output_cost_per_token" />
+          </label>
+        </div>
         <div id="ollama-fields">
           <label>
             Default Ollama Mode
@@ -366,6 +405,24 @@ document.addEventListener('DOMContentLoaded', () => {
         <label>Prefix <input type="text" id="edit-prefix" name="prefix" placeholder="e.g., mks-ollama" /></label>
         <label>Tags <input type="text" id="edit-tags" name="tags" placeholder="Comma separated" /></label>
         <label>Access Groups <input type="text" id="edit-access-groups" name="access_groups" placeholder="Comma separated (e.g., compat, tts)" /></label>
+        <label>
+          Pricing Profile
+          <select id="edit-pricing-profile" name="pricing_profile">
+            <option value="">Use global/default</option>
+            <option value="gpt-4o">OpenAI - gpt-4o</option>
+            <option value="gpt-4o-mini">OpenAI - gpt-4o-mini</option>
+            <option value="gpt-4.1">OpenAI - gpt-4.1</option>
+            <option value="o1-mini">OpenAI - o1-mini</option>
+          </select>
+        </label>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+          <label>Input $/token
+            <input type="number" step="0.000000001" id="edit-pricing-input" name="pricing_input_cost_per_token" />
+          </label>
+          <label>Output $/token
+            <input type="number" step="0.000000001" id="edit-pricing-output" name="pricing_output_cost_per_token" />
+          </label>
+        </div>
         <div id="edit-ollama-fields">
           <label>
             Default Ollama Mode

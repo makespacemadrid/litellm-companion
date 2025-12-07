@@ -69,6 +69,8 @@ def _model_response(model: Model) -> dict:
         "tags": model.system_tags_list,
         "user_tags": model.user_tags_list,
         "access_groups": model.access_groups_list,
+        "pricing_profile": model.pricing_profile,
+        "pricing_override": model.pricing_override_dict,
     }
 
 
@@ -99,6 +101,20 @@ async def update_model_parameters(
     access_groups = _normalize_list(payload.get("access_groups"))
     sync_enabled = _parse_bool(payload.get("sync_enabled"))
 
+    # Parse pricing override fields
+    pricing_profile = payload.get("pricing_profile")
+    pricing_override: dict | None = {}
+    for key in ("input_cost_per_token", "output_cost_per_token"):
+        if key in payload:
+            try:
+                pricing_override[key] = float(payload[key])
+            except (TypeError, ValueError):
+                continue
+    if pricing_override == {}:
+        pricing_override = None
+
+    config = await get_config(session)
+
     await update_model_params(
         session,
         model,
@@ -106,6 +122,9 @@ async def update_model_parameters(
         user_tags=tags,
         access_groups=access_groups,
         sync_enabled=sync_enabled,
+        pricing_profile=pricing_profile,
+        pricing_override=pricing_override,
+        config=config,
     )
 
     return {"status": "updated", "message": "Model parameters saved"}
@@ -201,7 +220,8 @@ async def refresh_model(model_id: int, session: AsyncSession = Depends(get_sessi
     if provider.type == "ollama":
         metadata.raw = _clean_ollama_payload(metadata.raw)
 
-    await upsert_model(session, provider, metadata, full_update=True)
+    config = await get_config(session)
+    await upsert_model(session, provider, metadata, full_update=True, config=config)
     return {"status": "refreshed", "message": f"Updated from {provider.name}"}
 
 

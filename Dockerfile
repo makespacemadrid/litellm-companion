@@ -14,6 +14,9 @@ RUN apt-get update && \
 # Install application
 COPY pyproject.toml README.md /app/
 COPY litellm_updater /app/litellm_updater
+COPY backend /app/backend
+COPY frontend /app/frontend
+COPY shared /app/shared
 COPY example.env /app/env.example
 COPY scripts /app/scripts
 COPY alembic /app/alembic

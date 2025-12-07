@@ -665,15 +665,19 @@ class ModelMetadata(BaseModel):
 
         # Add default pricing (0.0 for Ollama, normal for others)
         details = self.raw.get("details")
-        is_ollama = details and isinstance(details, dict) and details.get("family")
-        if is_ollama:
+        ollama_family = details.get("family") if isinstance(details, dict) else None
+        is_ollama_source = merged.get("litellm_provider") == "ollama" or bool(ollama_family)
+
+        if is_ollama_source:
             # Ollama models are local/free
-            merged["input_cost_per_token"] = 0.0
-            merged["output_cost_per_token"] = 0.0
+            merged.setdefault("litellm_provider", "ollama")
+            merged.setdefault("input_cost_per_token", 0.0)
+            merged.setdefault("output_cost_per_token", 0.0)
         else:
             # Use default pricing for cloud models
             pricing = _get_default_pricing(self.model_type, self.litellm_mode)
-            merged.update(pricing)
+            for key, value in pricing.items():
+                merged.setdefault(key, value)
 
         # Map supported OpenAI parameters from Ollama parameters
         supported_params = self._get_openai_compatible_params()
@@ -681,7 +685,7 @@ class ModelMetadata(BaseModel):
             merged["supported_openai_params"] = supported_params
 
         # Set litellm_provider based on source
-        if is_ollama and "litellm_provider" not in merged:
+        if is_ollama_source and "litellm_provider" not in merged:
             merged["litellm_provider"] = "ollama"
 
         # Add supports_system_messages and supports_native_streaming for chat models

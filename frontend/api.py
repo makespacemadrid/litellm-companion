@@ -20,6 +20,7 @@ from frontend.routes import providers, models, admin, compat, litellm
 from backend import provider_sync
 from sqlalchemy import select, func
 from shared.db_models import Model
+from shared import __version__ as APP_VERSION
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="LiteLLM Updater",
         description="Model synchronization UI and API",
-        version="0.2.0",
+        version=APP_VERSION,
         lifespan=lifespan
     )
 
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     # Initialize templates
     templates_path = Path(__file__).parent / "templates"
     templates = Jinja2Templates(directory=str(templates_path))
+    templates.env.globals["APP_VERSION"] = APP_VERSION
 
     # Helper function for templates
     def _human_source_type(source_type: str) -> str:
@@ -115,7 +117,9 @@ def create_app() -> FastAPI:
                 "base_url": config.litellm_base_url or "",
                 "api_key": config.litellm_api_key or ""
             },
-            "sync_interval_seconds": config.sync_interval_seconds
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
         }
         config_dict["sources"] = [
             {
@@ -146,7 +150,9 @@ def create_app() -> FastAPI:
                 "base_url": config.litellm_base_url or "",
                 "api_key": config.litellm_api_key or ""
             },
-            "sync_interval_seconds": config.sync_interval_seconds
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("sources.html", {
             "request": request,
@@ -163,7 +169,9 @@ def create_app() -> FastAPI:
                 "base_url": config.litellm_base_url or "",
                 "api_key": config.litellm_api_key or ""
             },
-            "sync_interval_seconds": config.sync_interval_seconds
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("compat.html", {
             "request": request,
@@ -211,7 +219,9 @@ def create_app() -> FastAPI:
                 "base_url": config.litellm_base_url or "",
                 "api_key": config.litellm_api_key or ""
             },
-            "sync_interval_seconds": config.sync_interval_seconds
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("litellm.html", {
             "request": request,
@@ -232,7 +242,9 @@ def create_app() -> FastAPI:
                 "base_url": config.litellm_base_url or "",
                 "api_key": config.litellm_api_key or ""
             },
-            "sync_interval_seconds": config.sync_interval_seconds
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("admin.html", {
             "request": request,

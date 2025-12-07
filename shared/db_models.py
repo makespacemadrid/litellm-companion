@@ -27,6 +27,8 @@ class Provider(Base):
     default_ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_groups: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    pricing_profile: Mapped[str | None] = mapped_column(String, nullable=True)
+    pricing_override: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
     sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False
@@ -74,6 +76,18 @@ class Provider(Base):
         """Store provider access_groups as JSON."""
         self.access_groups = json.dumps(value) if value else None
 
+    @property
+    def pricing_override_dict(self) -> dict[str, Any]:
+        """Parse pricing override JSON."""
+        if not self.pricing_override:
+            return {}
+        return json.loads(self.pricing_override)
+
+    @pricing_override_dict.setter
+    def pricing_override_dict(self, value: dict[str, Any] | None) -> None:
+        """Store pricing override as JSON."""
+        self.pricing_override = json.dumps(value) if value else None
+
 
 class Config(Base):
     """Global configuration (LiteLLM destination and sync settings)."""
@@ -84,6 +98,8 @@ class Config(Base):
     litellm_base_url: Mapped[str | None] = mapped_column(String, nullable=True)
     litellm_api_key: Mapped[str | None] = mapped_column(String, nullable=True)
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    default_pricing_profile: Mapped[str | None] = mapped_column(String, nullable=True)
+    default_pricing_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
@@ -97,6 +113,18 @@ class Config(Base):
     __table_args__ = (
         CheckConstraint("sync_interval_seconds >= 0", name="check_sync_interval"),
     )
+
+    @property
+    def default_pricing_override_dict(self) -> dict[str, Any]:
+        """Parsed global pricing override JSON."""
+        if not self.default_pricing_override:
+            return {}
+        return json.loads(self.default_pricing_override)
+
+    @default_pricing_override_dict.setter
+    def default_pricing_override_dict(self, value: dict[str, Any] | None) -> None:
+        """Store global pricing override as JSON."""
+        self.default_pricing_override = json.dumps(value) if value else None
 
 
 class Model(Base):
@@ -125,6 +153,8 @@ class Model(Base):
     system_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON array
     user_tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     access_groups: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    pricing_profile: Mapped[str | None] = mapped_column(String, nullable=True)
+    pricing_override: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
 
     # Ollama-specific
     ollama_mode: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -243,6 +273,18 @@ class Model(Base):
     def access_groups_list(self, value: list[str] | None) -> None:
         """Store model access_groups as JSON."""
         self.access_groups = json.dumps(value) if value else None
+
+    @property
+    def pricing_override_dict(self) -> dict[str, Any]:
+        """Parsed pricing override."""
+        if not self.pricing_override:
+            return {}
+        return json.loads(self.pricing_override)
+
+    @pricing_override_dict.setter
+    def pricing_override_dict(self, value: dict[str, Any] | None) -> None:
+        """Store pricing override as JSON."""
+        self.pricing_override = json.dumps(value) if value else None
 
     @property
     def all_tags(self) -> list[str]:

@@ -2,7 +2,10 @@ services:
   # Backend sync worker (no HTTP server)
   model-updater-backend:
     image: ghcr.io/makespacemadrid/litellm-updater-backend:latest
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m backend.sync_worker
     container_name: model-updater-backend
     restart: unless-stopped
     volumes:
@@ -23,7 +26,9 @@ services:
   # Frontend API + UI
   model-updater-web:
     image: ghcr.io/makespacemadrid/litellm-updater-web:latest
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: model-updater-web
     restart: unless-stopped
     ports:
