@@ -129,6 +129,8 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                 "default_ollama_mode",
                 "tags",
                 "access_groups",
+                "pricing_profile",
+                "pricing_override",
                 "sync_enabled",
                 "created_at",
                 "updated_at",
@@ -151,6 +153,8 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                         default_ollama_mode VARCHAR,
                         tags TEXT,
                         access_groups TEXT,
+                        pricing_profile VARCHAR,
+                        pricing_override TEXT,
                         sync_enabled BOOLEAN NOT NULL,
                         created_at DATETIME NOT NULL,
                         updated_at DATETIME NOT NULL,
@@ -165,11 +169,13 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                     """
                     INSERT INTO providers_new (
                         id, name, base_url, type, api_key, prefix, default_ollama_mode,
-                        tags, access_groups, sync_enabled, created_at, updated_at
+                        tags, access_groups, pricing_profile, pricing_override,
+                        sync_enabled, created_at, updated_at
                     )
                     SELECT
                         id, name, base_url, type, api_key, prefix, default_ollama_mode,
-                        tags, access_groups, sync_enabled, created_at, updated_at
+                        tags, access_groups, pricing_profile, pricing_override,
+                        sync_enabled, created_at, updated_at
                     FROM providers
                     """
                 )

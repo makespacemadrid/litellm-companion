@@ -151,10 +151,9 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     db_url = get_database_url()
     engine = create_engine(db_url)
-    try:
-        # Bootstrap schema directly (no alembic)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # Bootstrap schema directly (no alembic)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     # Always run safety fixups to ensure columns exist (covers legacy DBs and new fields)
     await ensure_minimum_schema(engine)
     session_maker = init_session_maker(engine)
