@@ -152,19 +152,20 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     db_url = get_database_url()
     engine = create_engine(db_url)
+    sync_db_url = get_sync_database_url()
     try:
         # Run migrations in executor to avoid nested event loop conflict
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, run_migrations, db_url)
+        await loop.run_in_executor(None, run_migrations, sync_db_url)
         logger.info("Database migrations applied")
     except CommandError as exc:
         logger.warning("Alembic migration scripts missing (%s); applying safety schema fixups", exc)
-        await ensure_minimum_schema(engine)
     except Exception:
         logger.exception("Database migration failed; falling back to create_all + safety fixups")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        await ensure_minimum_schema(engine)
+    # Always run safety fixups to ensure columns exist (covers legacy DBs and new fields)
+    await ensure_minimum_schema(engine)
     session_maker = init_session_maker(engine)
     logger.info("Database initialized successfully")
 

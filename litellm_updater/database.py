@@ -41,7 +41,8 @@ def run_migrations(
     """Apply alembic migrations up to head."""
 
     base_dir = Path(__file__).resolve().parent.parent
-    db_url = db_url or get_database_url()
+    # Alembic expects a sync URL
+    db_url = db_url or get_sync_database_url()
     config_path = Path(config_path) if config_path else base_dir / "alembic.ini"
     script_location = Path(script_location) if script_location else base_dir / "alembic"
 
