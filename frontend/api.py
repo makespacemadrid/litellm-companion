@@ -102,12 +102,31 @@ def create_app() -> FastAPI:
         orphaned_models = await session.scalar(select(func.count()).select_from(Model).where(Model.is_orphaned == True))
         modified_models = await session.scalar(select(func.count()).select_from(Model).where(Model.user_modified == True))
 
+        # Get category stats
+        from shared.db_models import Provider as ProviderModel
+        from shared.categorization import get_category_stats
+        result = await session.execute(
+            select(Model)
+            .join(ProviderModel)
+            .where(
+                Model.is_orphaned == False,
+                ProviderModel.type != "compat"
+            )
+        )
+        all_models = result.scalars().all()
+        models_data = [
+            {"capabilities": m.capabilities, "system_tags": m.system_tags}
+            for m in all_models
+        ]
+        category_stats = get_category_stats(models_data)
+
         stats = {
             "providers": len(providers_list),
             "models": total_models or 0,
             "orphaned": orphaned_models or 0,
             "modified": modified_models or 0,
-            "litellm_models": litellm_models
+            "litellm_models": litellm_models,
+            "categories": category_stats
         }
 
         # Convert config to template-compatible format
@@ -155,6 +174,25 @@ def create_app() -> FastAPI:
             "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("sources.html", {
+            "request": request,
+            "config": config_dict
+        })
+
+    @app.get("/models", response_class=HTMLResponse)
+    async def models_page(request: Request, session = Depends(get_session)):
+        """Models browser page."""
+        config = await get_config(session)
+        config_dict = {
+            "litellm": {
+                "configured": bool(config.litellm_base_url),
+                "base_url": config.litellm_base_url or "",
+                "api_key": config.litellm_api_key or ""
+            },
+            "sync_interval_seconds": config.sync_interval_seconds,
+            "default_pricing_profile": config.default_pricing_profile,
+            "default_pricing_override": config.default_pricing_override_dict,
+        }
+        return templates.TemplateResponse("models.html", {
             "request": request,
             "config": config_dict
         })

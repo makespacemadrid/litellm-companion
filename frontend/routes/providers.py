@@ -12,6 +12,7 @@ from shared.crud import (
     get_models_by_provider,
     get_config,
 )
+from shared.categorization import get_category_stats
 from backend.provider_sync import sync_provider
 
 router = APIRouter()
@@ -84,6 +85,40 @@ async def list_providers(session: AsyncSession = Depends(get_session)):
     ]
 
 
+@router.get("/stats/all")
+async def get_all_stats(session: AsyncSession = Depends(get_session)):
+    """Get category statistics for all providers combined."""
+    from sqlalchemy import select
+    from shared.db_models import Model, Provider
+
+    # Get all non-orphaned models from non-compat providers
+    result = await session.execute(
+        select(Model)
+        .join(Provider)
+        .where(
+            Model.is_orphaned == False,
+            Provider.type != "compat"
+        )
+    )
+    models = result.scalars().all()
+
+    # Convert to dict format for categorization
+    models_data = [
+        {
+            "capabilities": m.capabilities,
+            "system_tags": m.system_tags
+        }
+        for m in models
+    ]
+
+    stats = get_category_stats(models_data)
+
+    return {
+        "total_models": len(models),
+        "categories": stats
+    }
+
+
 @router.get("/{provider_id}/models")
 async def list_provider_models(
     provider_id: int,
@@ -126,6 +161,38 @@ async def list_provider_models(
         "type": provider.type,
         "base_url": provider.base_url,
     }, "models": result}
+
+
+@router.get("/{provider_id}/stats")
+async def get_provider_stats(
+    provider_id: int,
+    session: AsyncSession = Depends(get_session)
+):
+    """Get category statistics for a provider's models."""
+    provider = await get_provider_by_id(session, provider_id)
+    if not provider:
+        raise HTTPException(404, "Provider not found")
+
+    # Get all non-orphaned models
+    models = await get_models_by_provider(session, provider_id, include_orphaned=False)
+
+    # Convert to dict format for categorization
+    models_data = [
+        {
+            "capabilities": m.capabilities,
+            "system_tags": m.system_tags
+        }
+        for m in models
+    ]
+
+    stats = get_category_stats(models_data)
+
+    return {
+        "provider_id": provider_id,
+        "provider_name": provider.name,
+        "total_models": len(models),
+        "categories": stats
+    }
 
 
 @router.get("/{provider_id}")

@@ -7,6 +7,14 @@
     This allows external services to use familiar model names while routing to your custom models.
   </p>
 
+  <!-- OpenAI API Coverage Panel -->
+  <div class="coverage-panel">
+    <h3 style="margin: 0 0 1rem 0; font-size: 1.1rem;">OpenAI API Coverage</h3>
+    <div id="coverage-badges" class="coverage-badges">
+      Loading coverage...
+    </div>
+  </div>
+
   <!-- Actions -->
   <div class="compat-actions">
     <button class="btn-primary" onclick="openAddCompatModal()">Add Compat Model</button>
@@ -77,6 +85,68 @@
 </div>
 
 <style>
+/* Coverage Panel */
+.coverage-panel {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.coverage-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.coverage-badge {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: help;
+  min-width: 140px;
+}
+
+.coverage-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.coverage-badge.covered {
+  background: #e8f5e9;
+  border: 2px solid #4caf50;
+  color: #2e7d32;
+}
+
+.coverage-badge.partial {
+  background: #fff3e0;
+  border: 2px solid #ff9800;
+  color: #e65100;
+}
+
+.coverage-badge.missing {
+  background: #ffebee;
+  border: 2px solid #f44336;
+  color: #c62828;
+}
+
+.coverage-icon {
+  font-size: 1.2rem;
+  margin-right: 0.5rem;
+}
+
+.coverage-count {
+  margin-left: auto;
+  padding-left: 0.75rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
 .compat-actions {
   margin-bottom: 1.5rem;
 }
@@ -250,15 +320,113 @@ let compatModels = [];
 let allProviders = [];
 let providerModels = {};
 
+// OpenAI API Categories with representative model names
+const OPENAI_CATEGORIES = {
+  'Chat': {
+    icon: '💬',
+    models: ['gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-4-32k'],
+    description: 'Chat completion models'
+  },
+  'Vision': {
+    icon: '👁️',
+    models: ['gpt-4-vision-preview', 'gpt-4-turbo-vision', 'gpt-4o-vision'],
+    description: 'Vision-enabled models'
+  },
+  'Code': {
+    icon: '💻',
+    models: ['code-davinci-002', 'gpt-4-code'],
+    description: 'Code generation models'
+  },
+  'Reasoning': {
+    icon: '🧠',
+    models: ['o1', 'o1-mini', 'o1-preview'],
+    description: 'Advanced reasoning models'
+  },
+  'Embeddings': {
+    icon: '🔢',
+    models: ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
+    description: 'Text embedding models'
+  },
+  'Speech-to-Text': {
+    icon: '🎤',
+    models: ['whisper-1'],
+    description: 'Audio transcription'
+  },
+  'Text-to-Speech': {
+    icon: '🔊',
+    models: ['tts-1', 'tts-1-hd'],
+    description: 'Voice generation'
+  },
+  'Images': {
+    icon: '🎨',
+    models: ['dall-e-2', 'dall-e-3'],
+    description: 'Image generation'
+  }
+};
+
 // Load compat models on page load
 async function loadCompatModels() {
   try {
     const response = await fetch('/api/compat/models');
     compatModels = await response.json();
     renderCompatModels();
+    await renderCoverage();
   } catch (error) {
     document.getElementById('compat-list').innerHTML = `<p style="color: red;">Error loading compat models: ${error.message}</p>`;
+    document.getElementById('coverage-badges').innerHTML = `<p style="color: red;">Error loading coverage</p>`;
   }
+}
+
+// Render OpenAI API coverage badges
+async function renderCoverage() {
+  // Get model names from both compat models AND database models
+  const compatModelNames = new Set(compatModels.map(m => m.model_name.toLowerCase()));
+
+  // Also fetch database models to include in coverage
+  let dbModelNames = new Set();
+  try {
+    const providers = await fetch('/api/providers').then(r => r.json());
+    for (const provider of providers) {
+      if (provider.type !== 'compat') {
+        const data = await fetch(`/api/providers/${provider.id}/models?include_orphaned=false`).then(r => r.json());
+        const models = Array.isArray(data) ? data : (data.models || []);
+        models.forEach(m => dbModelNames.add(m.model_id.toLowerCase()));
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load database models for coverage:', error);
+  }
+
+  // Combine both sets
+  const allModelNames = new Set([...compatModelNames, ...dbModelNames]);
+
+  const badges = Object.entries(OPENAI_CATEGORIES).map(([category, info]) => {
+    const coveredModels = info.models.filter(m => allModelNames.has(m.toLowerCase()));
+    const coverageCount = coveredModels.length;
+    const totalCount = info.models.length;
+
+    let statusClass = 'missing';
+    let statusIcon = '❌';
+    if (coverageCount === totalCount) {
+      statusClass = 'covered';
+      statusIcon = '✓';
+    } else if (coverageCount > 0) {
+      statusClass = 'partial';
+      statusIcon = '⚠️';
+    }
+
+    const title = `${info.description}\nCovered: ${coveredModels.join(', ') || 'None'}\nMissing: ${info.models.filter(m => !allModelNames.has(m.toLowerCase())).join(', ') || 'None'}`;
+
+    return `
+      <div class="coverage-badge ${statusClass}" title="${title}">
+        <span class="coverage-icon">${info.icon}</span>
+        <span>${category}</span>
+        <span class="coverage-count">${statusIcon} ${coverageCount}/${totalCount}</span>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('coverage-badges').innerHTML = badges;
 }
 
 // Load all providers for dropdown

@@ -24,6 +24,33 @@
     </div>
   </div>
 
+  {% if stats.categories %}
+  <div class="categories-panel">
+    <h3 style="margin: 0 0 1rem 0;">Model Categories</h3>
+    <div class="categories-grid">
+      {% set category_icons = {
+        'chat': '💬',
+        'vision': '👁️',
+        'code': '💻',
+        'reasoning': '🧠',
+        'embedding': '🔢',
+        'audio': '🎤',
+        'image': '🎨',
+        'unknown': '❓'
+      } %}
+      {% for cat, count in stats.categories.items() %}
+        {% if count > 0 %}
+        <div class="category-badge">
+          <span class="category-icon">{{ category_icons.get(cat, '📦') }}</span>
+          <span class="category-name">{{ cat.capitalize() }}</span>
+          <span class="category-count">{{ count }}</span>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="status-grid">
     <div>
       <h3>LiteLLM Destination</h3>
@@ -93,6 +120,46 @@
 .stat-card .stat-value { font-size: 2rem; font-weight: 700; }
 .stat-card.warning { background: #fff4f2; border-color: #ffccc2; }
 .stat-card.info { background: #f0f7ff; border-color: #cfe3ff; }
+.stat-card.success { background: #f0fdf4; border-color: #bbf7d0; }
+.categories-panel {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+.category-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+.category-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.category-icon {
+  font-size: 1.5rem;
+}
+.category-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #4b5563;
+}
+.category-count {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1976d2;
+}
 .status-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

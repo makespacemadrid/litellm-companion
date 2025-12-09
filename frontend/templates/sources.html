@@ -188,6 +188,30 @@
   gap: 0.5rem;
 }
 
+/* Provider Stats */
+.provider-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: #f0f7ff;
+  border-radius: 4px;
+  border-left: 3px solid #1976d2;
+}
+
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  color: #333;
+}
+
 /* Model List */
 .model-list {
   list-style: none;
@@ -441,9 +465,17 @@ function renderTabs() {
           <button class="btn-success" onclick="pushProvider(${p.id})">Push</button>
         </div>
       </div>
+      ${p.type !== 'compat' ? `<div id="stats-${p.id}" class="provider-stats">Loading stats...</div>` : ''}
       <div id="models-${p.id}">Loading models...</div>
     </div>`
   ).join('');
+
+  // Load stats for non-compat providers
+  providers.forEach(p => {
+    if (p.type !== 'compat') {
+      loadProviderStats(p.id);
+    }
+  });
 
   // Load models for all providers
   providers.forEach(p => loadProviderModels(p.id));
@@ -460,6 +492,39 @@ function switchTab(evt, providerId) {
   document.getElementById(`tab-${providerId}`).classList.add('active');
 
   activeTabId = providerId;
+}
+
+async function loadProviderStats(providerId) {
+  const container = document.getElementById(`stats-${providerId}`);
+  if (!container) return;
+
+  try {
+    const response = await fetch(`/api/providers/${providerId}/stats`);
+    if (!response.ok) throw new Error('Failed to load stats');
+
+    const data = await response.json();
+    const cats = data.categories;
+
+    // Category icons
+    const icons = {
+      chat: '💬', vision: '👁️', code: '💻', reasoning: '🧠',
+      embedding: '🔢', audio: '🎤', image: '🎨', unknown: '❓'
+    };
+
+    // Only show categories with models
+    const badges = Object.entries(cats)
+      .filter(([_, count]) => count > 0)
+      .map(([cat, count]) => {
+        const icon = icons[cat] || '📦';
+        const label = cat.charAt(0).toUpperCase() + cat.slice(1);
+        return `<span class="cat-badge">${icon} ${label}: <strong>${count}</strong></span>`;
+      })
+      .join('');
+
+    container.innerHTML = badges || '<span class="muted">No models</span>';
+  } catch (error) {
+    container.innerHTML = `<span class="muted">Stats unavailable</span>`;
+  }
 }
 
 async function loadProviderModels(providerId) {
