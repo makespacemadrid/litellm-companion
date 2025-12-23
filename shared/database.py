@@ -155,9 +155,10 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                 "updated_at",
             ]
             missing_compat = "'compat'" not in table_sql and '"compat"' not in table_sql
+            missing_completion = "'completion'" not in table_sql and '"completion"' not in table_sql
             missing_ollama_chat = "ollama_chat" not in table_sql
             wrong_order = column_names != expected_columns
-            if missing_compat or missing_ollama_chat or wrong_order:
+            if missing_compat or missing_completion or missing_ollama_chat or wrong_order:
                 # Need to recreate providers table with updated constraint
                 await conn.exec_driver_sql("PRAGMA foreign_keys=off")
                 await conn.exec_driver_sql(
@@ -178,7 +179,7 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                         created_at DATETIME NOT NULL,
                         updated_at DATETIME NOT NULL,
                         PRIMARY KEY (id),
-                        CONSTRAINT check_provider_type CHECK (type IN ('ollama', 'openai', 'compat')),
+                        CONSTRAINT check_provider_type CHECK (type IN ('ollama', 'openai', 'compat', 'completion')),
                         CONSTRAINT check_default_ollama_mode CHECK (default_ollama_mode IS NULL OR default_ollama_mode IN ('ollama', 'ollama_chat', 'openai'))
                     )
                     """

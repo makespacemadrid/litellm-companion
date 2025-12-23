@@ -387,7 +387,7 @@ async function renderCoverage() {
   try {
     const providers = await fetch('/api/providers').then(r => r.json());
     for (const provider of providers) {
-      if (provider.type !== 'compat') {
+      if (provider.type !== 'compat' && provider.type !== 'completion') {
         const data = await fetch(`/api/providers/${provider.id}/models?include_orphaned=false`).then(r => r.json());
         const models = Array.isArray(data) ? data : (data.models || []);
         models.forEach(m => dbModelNames.add(m.model_id.toLowerCase()));
@@ -435,8 +435,8 @@ async function loadProviders() {
     const response = await fetch('/api/providers');
     allProviders = await response.json();
 
-    // Filter out compat provider from the list
-    allProviders = allProviders.filter(p => p.type !== 'compat');
+    // Filter out non-source providers from the list
+    allProviders = allProviders.filter(p => p.type !== 'compat' && p.type !== 'completion');
 
     updateProviderDropdown();
   } catch (error) {

@@ -537,3 +537,79 @@ async def update_compat_model(
 
     model.updated_at = datetime.now(UTC)
     return model
+
+
+# Completion Models CRUD Operations
+
+
+async def get_or_create_completion_provider(session: AsyncSession) -> Provider:
+    """Get or create the special 'CompletionModels' provider."""
+    provider = await get_provider_by_name(session, "CompletionModels")
+    if provider is None:
+        provider = await create_provider(
+            session,
+            name="CompletionModels",
+            base_url="http://localhost",  # Dummy URL, not used
+            type_="completion",
+            prefix=None,
+            access_groups=None,
+            sync_enabled=False,
+        )
+        await session.flush()
+    return provider
+
+
+async def get_all_completion_models(session: AsyncSession) -> list[Model]:
+    """Get all completion models."""
+    provider = await get_or_create_completion_provider(session)
+    return await get_models_by_provider(session, provider.id, include_orphaned=False)
+
+
+async def create_completion_model(
+    session: AsyncSession,
+    mapped_provider_id: int,
+    mapped_model_id: str,
+) -> Model:
+    """Create a completion model mapping to an existing model."""
+    provider = await get_or_create_completion_provider(session)
+
+    mapped_provider = await get_provider_by_id(session, mapped_provider_id)
+    if not mapped_provider:
+        raise ValueError("Mapped provider not found")
+    if mapped_provider.type in {"compat", "completion"}:
+        raise ValueError("Mapped provider must be a source provider")
+
+    mapped_model = await get_model_by_provider_and_name(session, mapped_provider_id, mapped_model_id)
+    if not mapped_model:
+        raise ValueError("Mapped model not found")
+
+    completion_model_id = f"{mapped_model_id}-completion"
+    existing = await get_model_by_provider_and_name(session, provider.id, completion_model_id)
+    if existing:
+        raise ValueError("Completion model already exists")
+
+    now = datetime.now(UTC)
+    model = Model(
+        provider_id=provider.id,
+        model_id=completion_model_id,
+        model_type="completion",
+        litellm_params=json.dumps({}),
+        raw_metadata=json.dumps(
+            {
+                "type": "completion",
+                "source_provider_id": mapped_provider_id,
+                "source_model_id": mapped_model_id,
+            }
+        ),
+        mapped_provider_id=mapped_provider_id,
+        mapped_model_id=mapped_model_id,
+        first_seen=now,
+        last_seen=now,
+        is_orphaned=False,
+        user_modified=True,
+        sync_enabled=True,
+    )
+
+    session.add(model)
+    await session.flush()
+    return model

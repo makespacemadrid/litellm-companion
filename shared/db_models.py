@@ -45,7 +45,10 @@ class Provider(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("type IN ('ollama', 'openai', 'compat')", name="check_provider_type"),
+        CheckConstraint(
+            "type IN ('ollama', 'openai', 'compat', 'completion')",
+            name="check_provider_type",
+        ),
         CheckConstraint(
             "default_ollama_mode IS NULL OR default_ollama_mode IN ('ollama', 'ollama_chat', 'openai')",
             name="check_default_ollama_mode",

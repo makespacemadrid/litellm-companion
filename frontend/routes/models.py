@@ -200,8 +200,8 @@ async def refresh_model(model_id: int, session: AsyncSession = Depends(get_sessi
     if provider is None:
         raise HTTPException(400, "Model provider missing")
 
-    if provider.type == "compat":
-        raise HTTPException(400, "Compat models cannot be refreshed from provider")
+    if provider.type in ("compat", "completion"):
+        raise HTTPException(400, "Managed models cannot be refreshed from provider")
 
     source = SourceEndpoint(
         name=provider.name,

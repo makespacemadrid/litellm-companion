@@ -318,7 +318,7 @@ async function loadData() {
     // Populate provider filter
     const providerSelect = document.getElementById('filter-provider');
     providers.forEach(p => {
-      if (p.type !== 'compat') {
+      if (p.type !== 'compat' && p.type !== 'completion') {
         const option = document.createElement('option');
         option.value = p.id;
         option.textContent = p.name;
@@ -329,7 +329,7 @@ async function loadData() {
     // Load all models from all providers
     allModels = [];
     for (const provider of providers) {
-      if (provider.type === 'compat') continue;
+      if (provider.type === 'compat' || provider.type === 'completion') continue;
 
       const response = await fetch(`/api/providers/${provider.id}/models?include_orphaned=true`);
       const data = await response.json();

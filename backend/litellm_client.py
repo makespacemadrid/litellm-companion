@@ -211,6 +211,28 @@ async def push_model_to_litellm(
     elif provider.type == "ollama":
         model_info["mode"] = ollama_mode
         model_info["litellm_provider"] = "openai" if ollama_mode == "openai" else "ollama"
+    elif provider.type == "completion":
+        model_info["mode"] = "completion"
+        if session and model.mapped_provider_id:
+            from shared.crud import get_provider_by_id, get_model_by_provider_and_name
+
+            mapped_provider = await get_provider_by_id(session, model.mapped_provider_id)
+            mapped_model = None
+            if mapped_provider:
+                mapped_model = await get_model_by_provider_and_name(
+                    session, model.mapped_provider_id, model.mapped_model_id or ""
+                )
+
+            if mapped_provider:
+                if mapped_provider.type == "openai":
+                    model_info["litellm_provider"] = "openai"
+                elif mapped_provider.type == "ollama":
+                    mapped_ollama_mode = (
+                        (mapped_model.ollama_mode if mapped_model else None)
+                        or mapped_provider.default_ollama_mode
+                        or "ollama_chat"
+                    )
+                    model_info["litellm_provider"] = "openai" if mapped_ollama_mode == "openai" else "ollama"
 
     # Generate tags
     from shared.models import ModelMetadata as PydanticModelMetadata
@@ -416,6 +438,57 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
                             litellm_params["api_base"] = mapped_provider.base_url
                     else:
                         logger.warning(f"Unsupported mapped provider type {mapped_provider.type} for compat model {model_id}")
+                        litellm_params["model"] = model_id
+    elif provider.type == "completion":
+        # Completion models resolve to a source provider/model but use completion routing
+        litellm_params["supports_completion"] = True
+        if not session:
+            logger.warning("No session provided for completion model, using model_id as-is")
+            litellm_params["model"] = model_id
+        else:
+            from shared.crud import get_provider_by_id, get_model_by_provider_and_name
+
+            if not model.mapped_provider_id or not model.mapped_model_id:
+                logger.warning(f"Completion model {model_id} missing mapping, using model_id as-is")
+                litellm_params["model"] = model_id
+            else:
+                mapped_provider = await get_provider_by_id(session, model.mapped_provider_id)
+                if not mapped_provider:
+                    logger.warning(
+                        "Mapped provider %s not found for completion model %s",
+                        model.mapped_provider_id,
+                        model_id,
+                    )
+                    litellm_params["model"] = model_id
+                else:
+                    mapped_model = await get_model_by_provider_and_name(
+                        session, model.mapped_provider_id, model.mapped_model_id
+                    )
+                    mapped_ollama_mode = (
+                        (mapped_model.ollama_mode if mapped_model else None)
+                        or mapped_provider.default_ollama_mode
+                        or "ollama_chat"
+                    )
+
+                    if mapped_provider.type == "openai":
+                        litellm_params["model"] = f"text-completion-openai/{model.mapped_model_id}"
+                        litellm_params["api_base"] = mapped_provider.base_url
+                        litellm_params["api_key"] = mapped_provider.api_key or "sk-1234"
+                    elif mapped_provider.type == "ollama":
+                        if mapped_ollama_mode == "openai":
+                            litellm_params["model"] = f"text-completion-openai/{model.mapped_model_id}"
+                            api_base = mapped_provider.base_url.rstrip("/")
+                            litellm_params["api_base"] = f"{api_base}/v1"
+                            litellm_params["api_key"] = mapped_provider.api_key or "sk-1234"
+                        else:
+                            litellm_params["model"] = f"ollama/{model.mapped_model_id}"
+                            litellm_params["api_base"] = mapped_provider.base_url
+                    else:
+                        logger.warning(
+                            "Unsupported mapped provider type %s for completion model %s",
+                            mapped_provider.type,
+                            model_id,
+                        )
                         litellm_params["model"] = model_id
 
     return litellm_params

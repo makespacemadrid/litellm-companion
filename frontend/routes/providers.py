@@ -97,7 +97,7 @@ async def get_all_stats(session: AsyncSession = Depends(get_session)):
         .join(Provider)
         .where(
             Model.is_orphaned == False,
-            Provider.type != "compat"
+                Provider.type.notin_(["compat", "completion"])
         )
     )
     models = result.scalars().all()
@@ -268,7 +268,7 @@ async def sync_all_providers(session: AsyncSession = Depends(get_session)):
     for provider in providers:
         if not provider.sync_enabled:
             continue
-        if provider.type == "compat":
+        if provider.type in ("compat", "completion"):
             continue
         try:
             stats = await sync_provider(session, config, provider, push_to_litellm=True)
@@ -289,7 +289,7 @@ async def fetch_all_providers(session: AsyncSession = Depends(get_session)):
     for provider in providers:
         if not provider.sync_enabled:
             continue
-        if provider.type == "compat":
+        if provider.type in ("compat", "completion"):
             continue
         try:
             stats = await sync_provider(session, config, provider, push_to_litellm=False)
@@ -383,6 +383,8 @@ async def sync_provider_now(provider_id: int, session: AsyncSession = Depends(ge
     provider = await get_provider_by_id(session, provider_id)
     if not provider:
         raise HTTPException(404, "Provider not found")
+    if provider.type in ("compat", "completion"):
+        raise HTTPException(400, "Managed providers cannot be synced")
 
     # Snapshot config and provider id for background task
     config = await get_config(session)
@@ -413,6 +415,8 @@ async def fetch_provider_now(provider_id: int, session: AsyncSession = Depends(g
     provider = await get_provider_by_id(session, provider_id)
     if not provider:
         raise HTTPException(404, "Provider not found")
+    if provider.type in ("compat", "completion"):
+        raise HTTPException(400, "Managed providers cannot be fetched")
 
     # Snapshot config and provider id for background task
     config = await get_config(session)

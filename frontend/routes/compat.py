@@ -160,7 +160,7 @@ async def register_default_models(session: AsyncSession = Depends(get_session)):
             .join(Provider)
             .where(
                 Model.model_id == actual_model_id,
-                Provider.type != "compat",
+                Provider.type.notin_(["compat", "completion"]),
             )
         )
         target = result.scalar_one_or_none()

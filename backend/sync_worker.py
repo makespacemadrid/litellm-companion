@@ -114,8 +114,8 @@ class SyncWorker:
                 if not provider:
                     logger.debug("Provider id %s no longer exists, skipping", provider_id)
                     continue
-                if provider.type == "compat":
-                    logger.debug("Skipping compat provider: %s", provider.name)
+                if provider.type in ("compat", "completion"):
+                    logger.debug("Skipping managed provider: %s", provider.name)
                     continue
                 if not provider.sync_enabled:
                     logger.debug("Skipping disabled provider: %s", provider.name)

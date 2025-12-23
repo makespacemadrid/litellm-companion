@@ -26,6 +26,9 @@ async def load_providers_from_db(session: AsyncSession, only_sync_enabled: bool 
         if only_sync_enabled and not provider.sync_enabled:
             logger.debug("Skipping disabled provider: %s", provider.name)
             continue
+        if provider.type in {"compat", "completion"}:
+            logger.debug("Skipping managed provider: %s", provider.name)
+            continue
 
         try:
             source = SourceEndpoint(
