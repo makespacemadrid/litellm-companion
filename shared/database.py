@@ -1,6 +1,8 @@
 """Database setup and connection management."""
 from pathlib import Path
 from typing import AsyncGenerator
+from datetime import UTC, datetime
+import json
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -155,10 +157,58 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                 "updated_at",
             ]
             missing_compat = "'compat'" not in table_sql and '"compat"' not in table_sql
-            missing_completion = "'completion'" not in table_sql and '"completion"' not in table_sql
+            has_completion = "'completion'" in table_sql or '"completion"' in table_sql
             missing_ollama_chat = "ollama_chat" not in table_sql
             wrong_order = column_names != expected_columns
-            if missing_compat or missing_completion or missing_ollama_chat or wrong_order:
+            if missing_compat or has_completion or missing_ollama_chat or wrong_order:
+                if has_completion:
+                    # Migrate completion provider models to compat with mode=completion
+                    now = datetime.now(UTC).isoformat()
+                    result = await conn.exec_driver_sql(
+                        "SELECT id FROM providers WHERE name='compat_models' LIMIT 1"
+                    )
+                    row = result.fetchone()
+                    if row:
+                        compat_id = row[0]
+                    else:
+                        await conn.exec_driver_sql(
+                            """
+                            INSERT INTO providers (
+                                name, base_url, type, api_key, prefix, default_ollama_mode,
+                                tags, access_groups, pricing_profile, pricing_override,
+                                sync_enabled, created_at, updated_at
+                            ) VALUES (?, ?, 'compat', NULL, NULL, NULL, NULL, ?, NULL, NULL, 0, ?, ?)
+                            """,
+                            ("compat_models", "http://localhost", json.dumps(["compat"]), now, now),
+                        )
+                        result = await conn.exec_driver_sql(
+                            "SELECT id FROM providers WHERE name='compat_models' LIMIT 1"
+                        )
+                        compat_id = result.fetchone()[0]
+
+                    completion_ids_result = await conn.exec_driver_sql(
+                        "SELECT id FROM providers WHERE type='completion' OR name='CompletionModels'"
+                    )
+                    completion_ids = [row[0] for row in completion_ids_result.fetchall()]
+                    if completion_ids:
+                        completion_id_list = ",".join(str(pid) for pid in completion_ids)
+                        await conn.exec_driver_sql(
+                            f"""
+                            UPDATE models
+                            SET provider_id={compat_id},
+                                model_type='compat',
+                                user_params='{json.dumps({'mode': 'completion'})}',
+                                raw_metadata='{json.dumps({'type': 'compat', 'migrated_from': 'completion'})}',
+                                updated_at='{now}'
+                            WHERE provider_id IN ({completion_id_list})
+                              AND model_id NOT IN (
+                                  SELECT model_id FROM models WHERE provider_id={compat_id}
+                              )
+                            """
+                        )
+                        await conn.exec_driver_sql(
+                            f"DELETE FROM providers WHERE id IN ({completion_id_list})"
+                        )
                 # Need to recreate providers table with updated constraint
                 await conn.exec_driver_sql("PRAGMA foreign_keys=off")
                 await conn.exec_driver_sql(
@@ -179,7 +229,7 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                         created_at DATETIME NOT NULL,
                         updated_at DATETIME NOT NULL,
                         PRIMARY KEY (id),
-                        CONSTRAINT check_provider_type CHECK (type IN ('ollama', 'openai', 'compat', 'completion')),
+                        CONSTRAINT check_provider_type CHECK (type IN ('ollama', 'openai', 'compat')),
                         CONSTRAINT check_default_ollama_mode CHECK (default_ollama_mode IS NULL OR default_ollama_mode IN ('ollama', 'ollama_chat', 'openai'))
                     )
                     """

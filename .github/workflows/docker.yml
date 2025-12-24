@@ -55,3 +55,14 @@ jobs:
             ghcr.io/makespacemadrid/litellm-updater-web:latest
             ghcr.io/makespacemadrid/litellm-updater-web:${{ steps.version.outputs.version }}
             ghcr.io/makespacemadrid/litellm-updater-web:${{ github.sha }}
+
+      - name: Build and push proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/makespacemadrid/litellm-updater-proxy:latest
+            ghcr.io/makespacemadrid/litellm-updater-proxy:${{ steps.version.outputs.version }}
+            ghcr.io/makespacemadrid/litellm-updater-proxy:${{ github.sha }}

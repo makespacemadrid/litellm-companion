@@ -39,6 +39,28 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # OpenAI-compatible proxy (chat/completions)
+  model-updater-proxy:
+    image: ghcr.io/makespacemadrid/litellm-updater-proxy:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn proxy.api:create_app --factory --host 0.0.0.0 --port 8000
+    container_name: model-updater-proxy
+    restart: unless-stopped
+    ports:
+      - "${PROXY_PORT:-4002}:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PROXY_LOG_REQUESTS=${PROXY_LOG_REQUESTS:-false}
+      - PROXY_LOG_BODY=${PROXY_LOG_BODY:-false}
+    networks:
+      - litellm
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     ports:

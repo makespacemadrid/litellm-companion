@@ -482,6 +482,7 @@ async def create_compat_model(
     mapped_provider_id: int | None = None,
     mapped_model_id: str | None = None,
     user_params: dict | None = None,
+    mode: str | None = None,
     access_groups: list[str] | None = None,
 ) -> Model:
     """Create a new compat model."""
@@ -490,6 +491,10 @@ async def create_compat_model(
     # Default access_groups to ['compat'] if not provided
     if access_groups is None:
         access_groups = ["compat"]
+
+    params = dict(user_params or {})
+    if mode is not None and mode != "default":
+        params["mode"] = mode
 
     # Create minimal metadata for compat model
     model = Model(
@@ -507,8 +512,8 @@ async def create_compat_model(
         sync_enabled=True,
     )
 
-    if user_params:
-        model.user_params = json.dumps(user_params)
+    if params:
+        model.user_params = json.dumps(params)
 
     model.access_groups_list = normalize_tags(access_groups)
 
@@ -523,6 +528,7 @@ async def update_compat_model(
     mapped_provider_id: int | None = None,
     mapped_model_id: str | None = None,
     user_params: dict | None = None,
+    mode: str | None = None,
     access_groups: list[str] | None = None,
 ) -> Model:
     """Update a compat model's mapping and parameters."""
@@ -530,86 +536,23 @@ async def update_compat_model(
         model.mapped_provider_id = mapped_provider_id
     if mapped_model_id is not None:
         model.mapped_model_id = mapped_model_id
+    params = None
     if user_params is not None:
-        model.user_params = json.dumps(user_params)
+        params = dict(user_params)
+    elif model.user_params_dict:
+        params = dict(model.user_params_dict)
+
+    if mode is not None:
+        params = params or {}
+        if mode == "default":
+            params.pop("mode", None)
+        else:
+            params["mode"] = mode
+
+    if params is not None:
+        model.user_params = json.dumps(params) if params else None
     if access_groups is not None:
         model.access_groups_list = normalize_tags(access_groups)
 
     model.updated_at = datetime.now(UTC)
-    return model
-
-
-# Completion Models CRUD Operations
-
-
-async def get_or_create_completion_provider(session: AsyncSession) -> Provider:
-    """Get or create the special 'CompletionModels' provider."""
-    provider = await get_provider_by_name(session, "CompletionModels")
-    if provider is None:
-        provider = await create_provider(
-            session,
-            name="CompletionModels",
-            base_url="http://localhost",  # Dummy URL, not used
-            type_="completion",
-            prefix=None,
-            access_groups=None,
-            sync_enabled=False,
-        )
-        await session.flush()
-    return provider
-
-
-async def get_all_completion_models(session: AsyncSession) -> list[Model]:
-    """Get all completion models."""
-    provider = await get_or_create_completion_provider(session)
-    return await get_models_by_provider(session, provider.id, include_orphaned=False)
-
-
-async def create_completion_model(
-    session: AsyncSession,
-    mapped_provider_id: int,
-    mapped_model_id: str,
-) -> Model:
-    """Create a completion model mapping to an existing model."""
-    provider = await get_or_create_completion_provider(session)
-
-    mapped_provider = await get_provider_by_id(session, mapped_provider_id)
-    if not mapped_provider:
-        raise ValueError("Mapped provider not found")
-    if mapped_provider.type in {"compat", "completion"}:
-        raise ValueError("Mapped provider must be a source provider")
-
-    mapped_model = await get_model_by_provider_and_name(session, mapped_provider_id, mapped_model_id)
-    if not mapped_model:
-        raise ValueError("Mapped model not found")
-
-    completion_model_id = f"{mapped_model_id}-completion"
-    existing = await get_model_by_provider_and_name(session, provider.id, completion_model_id)
-    if existing:
-        raise ValueError("Completion model already exists")
-
-    now = datetime.now(UTC)
-    model = Model(
-        provider_id=provider.id,
-        model_id=completion_model_id,
-        model_type="completion",
-        litellm_params=json.dumps({}),
-        raw_metadata=json.dumps(
-            {
-                "type": "completion",
-                "source_provider_id": mapped_provider_id,
-                "source_model_id": mapped_model_id,
-            }
-        ),
-        mapped_provider_id=mapped_provider_id,
-        mapped_model_id=mapped_model_id,
-        first_seen=now,
-        last_seen=now,
-        is_orphaned=False,
-        user_modified=True,
-        sync_enabled=True,
-    )
-
-    session.add(model)
-    await session.flush()
     return model

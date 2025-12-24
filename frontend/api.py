@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.database import create_engine, init_session_maker, get_session, ensure_minimum_schema
 from shared.crud import get_all_providers, get_config, get_provider_by_id
-from frontend.routes import providers, models, admin, compat, litellm, completion
+from frontend.routes import providers, models, admin, compat, litellm
 from backend import provider_sync
 from sqlalchemy import select, func
 from shared.db_models import Model
@@ -24,6 +24,7 @@ from shared import __version__ as APP_VERSION
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 
 @asynccontextmanager
@@ -70,8 +71,7 @@ def create_app() -> FastAPI:
         type_names = {
             "ollama": "Ollama",
             "openai": "OpenAI-compatible",
-            "compat": "Compat",
-            "completion": "Completion"
+            "compat": "Compat"
         }
         return type_names.get(source_type, source_type)
 
@@ -82,7 +82,6 @@ def create_app() -> FastAPI:
     app.include_router(models.router, prefix="/api/models", tags=["models"])
     app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
     app.include_router(compat.router, prefix="/api/compat", tags=["compat"])
-    app.include_router(completion.router, prefix="/api/completion", tags=["completion"])
     app.include_router(litellm.router, prefix="/litellm", tags=["litellm"])
 
     # HTML Routes
@@ -214,25 +213,6 @@ def create_app() -> FastAPI:
             "default_pricing_override": config.default_pricing_override_dict,
         }
         return templates.TemplateResponse("compat.html", {
-            "request": request,
-            "config": config_dict
-        })
-
-    @app.get("/completion", response_class=HTMLResponse)
-    async def completion_page(request: Request, session = Depends(get_session)):
-        """Completion models page."""
-        config = await get_config(session)
-        config_dict = {
-            "litellm": {
-                "configured": bool(config.litellm_base_url),
-                "base_url": config.litellm_base_url or "",
-                "api_key": config.litellm_api_key or ""
-            },
-            "sync_interval_seconds": config.sync_interval_seconds,
-            "default_pricing_profile": config.default_pricing_profile,
-            "default_pricing_override": config.default_pricing_override_dict,
-        }
-        return templates.TemplateResponse("completion.html", {
             "request": request,
             "config": config_dict
         })

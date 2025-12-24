@@ -25,6 +25,15 @@ def _parse_csv_list(raw: str | None) -> list[str] | None:
     parts = [p.strip() for p in raw.split(",")]
     return [p for p in parts if p]
 
+def _normalize_mode(raw: str | None) -> str | None:
+    """Normalize compat mode value."""
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    if value in {"chat", "completion", "default"}:
+        return value
+    return None
+
 
 @router.get("/models")
 async def list_compat_models(session: AsyncSession = Depends(get_session)):
@@ -58,6 +67,7 @@ async def list_compat_models(session: AsyncSession = Depends(get_session)):
                 "mapped_model_id": model.mapped_model_id,
                 "mapped_provider": mapped_provider,
                 "access_groups": model.get_effective_access_groups(),
+                "mode": (model.user_params_dict or {}).get("mode") or "default",
             }
         )
 
@@ -69,15 +79,22 @@ async def create_compat_model_endpoint(
     model_name: str = Form(...),
     mapped_provider_id: int | None = Form(None),
     mapped_model_id: str | None = Form(None),
+    mode: str | None = Form("default"),
     access_groups: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ):
     """Create a compat mapping."""
+    normalized_mode = _normalize_mode(mode)
+    if normalized_mode is None:
+        raise HTTPException(400, "Invalid mode")
+    if normalized_mode == "default":
+        normalized_mode = None
     model = await create_compat_model(
         session,
         model_name=model_name,
         mapped_provider_id=mapped_provider_id,
         mapped_model_id=mapped_model_id,
+        mode=normalized_mode,
         access_groups=_parse_csv_list(access_groups),
     )
     return {"id": model.id, "message": "Compat model created"}
@@ -88,6 +105,7 @@ async def update_compat_model_endpoint(
     model_id: int,
     mapped_provider_id: int | None = Form(None),
     mapped_model_id: str | None = Form(None),
+    mode: str | None = Form(None),
     access_groups: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ):
@@ -96,11 +114,16 @@ async def update_compat_model_endpoint(
     if not model or not model.provider or model.provider.type != "compat":
         raise HTTPException(404, "Compat model not found")
 
+    normalized_mode = _normalize_mode(mode)
+    if mode is not None and normalized_mode is None:
+        raise HTTPException(400, "Invalid mode")
+
     await update_compat_model(
         session,
         model,
         mapped_provider_id=mapped_provider_id,
         mapped_model_id=mapped_model_id,
+        mode=normalized_mode,
         access_groups=_parse_csv_list(access_groups),
     )
     return {"message": "Compat model updated"}

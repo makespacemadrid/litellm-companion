@@ -46,7 +46,7 @@ class Provider(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "type IN ('ollama', 'openai', 'compat', 'completion')",
+            "type IN ('ollama', 'openai', 'compat')",
             name="check_provider_type",
         ),
         CheckConstraint(
