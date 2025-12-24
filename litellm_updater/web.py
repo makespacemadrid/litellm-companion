@@ -234,7 +234,7 @@ async def _add_model_to_litellm(
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="LiteLLM Updater",
+        title="LiteLLM Companion",
         description="Sync models into LiteLLM",
         lifespan=lifespan,
         version=APP_VERSION,

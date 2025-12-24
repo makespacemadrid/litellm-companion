@@ -1198,4 +1198,4 @@ Is the model local/free?
 
 **Document Version:** 2.0 (Agent-Optimized)
 **Last Updated:** 2025-11-29
-**Maintainer:** LiteLLM Updater Project
+**Maintainer:** LiteLLM Companion Project

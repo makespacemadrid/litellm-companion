@@ -41,9 +41,9 @@ jobs:
           file: backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/makespacemadrid/litellm-updater-backend:latest
-            ghcr.io/makespacemadrid/litellm-updater-backend:${{ steps.version.outputs.version }}
-            ghcr.io/makespacemadrid/litellm-updater-backend:${{ github.sha }}
+            ghcr.io/makespacemadrid/litellm-companion-backend:latest
+            ghcr.io/makespacemadrid/litellm-companion-backend:${{ steps.version.outputs.version }}
+            ghcr.io/makespacemadrid/litellm-companion-backend:${{ github.sha }}
 
       - name: Build and push web image
         uses: docker/build-push-action@v6
@@ -52,9 +52,9 @@ jobs:
           file: frontend/Dockerfile
           push: true
           tags: |
-            ghcr.io/makespacemadrid/litellm-updater-web:latest
-            ghcr.io/makespacemadrid/litellm-updater-web:${{ steps.version.outputs.version }}
-            ghcr.io/makespacemadrid/litellm-updater-web:${{ github.sha }}
+            ghcr.io/makespacemadrid/litellm-companion-web:latest
+            ghcr.io/makespacemadrid/litellm-companion-web:${{ steps.version.outputs.version }}
+            ghcr.io/makespacemadrid/litellm-companion-web:${{ github.sha }}
 
       - name: Build and push proxy image
         uses: docker/build-push-action@v6
@@ -63,6 +63,6 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/makespacemadrid/litellm-updater-proxy:latest
-            ghcr.io/makespacemadrid/litellm-updater-proxy:${{ steps.version.outputs.version }}
-            ghcr.io/makespacemadrid/litellm-updater-proxy:${{ github.sha }}
+            ghcr.io/makespacemadrid/litellm-companion-proxy:latest
+            ghcr.io/makespacemadrid/litellm-companion-proxy:${{ steps.version.outputs.version }}
+            ghcr.io/makespacemadrid/litellm-companion-proxy:${{ github.sha }}

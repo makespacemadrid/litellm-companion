@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LiteLLM Updater runs as two FastAPI services built from shared code:
+LiteLLM Companion runs as two FastAPI services built from shared code:
 - `backend/` → headless sync worker (`backend/sync_worker.py`) that fetches provider models and can push them into LiteLLM on a schedule.
 - `frontend/` → UI + API (`frontend/api.py`) for manual fetch/push/sync and CRUD over providers/models.
 

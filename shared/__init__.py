@@ -1,3 +1,3 @@
 """Shared code between backend and frontend services."""
 
-__version__ = "0.5.21"
+__version__ = "0.5.22"

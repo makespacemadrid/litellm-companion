@@ -1,7 +1,7 @@
 services:
   # Backend sync worker (no HTTP server)
   model-updater-backend:
-    image: ghcr.io/makespacemadrid/litellm-updater-backend:latest
+    image: ghcr.io/makespacemadrid/litellm-companion-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -19,7 +19,7 @@ services:
 
   # Frontend API + UI
   model-updater-web:
-    image: ghcr.io/makespacemadrid/litellm-updater-web:latest
+    image: ghcr.io/makespacemadrid/litellm-companion-web:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -41,7 +41,7 @@ services:
 
   # OpenAI-compatible proxy (chat/completions)
   model-updater-proxy:
-    image: ghcr.io/makespacemadrid/litellm-updater-proxy:latest
+    image: ghcr.io/makespacemadrid/litellm-companion-proxy:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -97,7 +97,7 @@ services:
       - litellm
 #  env-sync:
 #    build: .
-#    image: litellm-updater:latest
+#    image: litellm-companion:latest
 #    command: >
 #      python /app/scripts/sync_env.py
 #    volumes:
@@ -114,7 +114,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 #    depends_on:
-#      - litellm-updater
+#      - litellm-companion
 
 networks:
   litellm:

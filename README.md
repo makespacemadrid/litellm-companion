@@ -1,4 +1,4 @@
-# litellm-updater
+# litellm-companion
 
 A FastAPI service that synchronizes models from Ollama or other LiteLLM/OpenAI-compatible servers into a LiteLLM proxy. It periodically scans upstream sources for models, persists them to a database, and registers them with LiteLLM using the admin API. Includes a web UI for provider management, model editing, and monitoring.
 
@@ -22,7 +22,7 @@ A FastAPI service that synchronizes models from Ollama or other LiteLLM/OpenAI-c
 
 2. **Run the server**
    ```bash
-   PORT=8000 litellm-updater
+   PORT=8000 litellm-companion
    # or
    PORT=8000 uvicorn litellm_updater.web:create_app --port $PORT
    ```
@@ -42,8 +42,8 @@ A FastAPI service that synchronizes models from Ollama or other LiteLLM/OpenAI-c
 ## Running with Docker
 - Build the image directly:
   ```bash
-  docker build -t litellm-updater .
-  docker run --rm -e PORT=8000 -p 8000:8000 -v $(pwd)/data:/app/data litellm-updater
+  docker build -t litellm-companion .
+  docker run --rm -e PORT=8000 -p 8000:8000 -v $(pwd)/data:/app/data litellm-companion
   ```
 
 - Or use Docker Compose with the provided `example.env` (copy or override values as needed):

@@ -1,9 +1,9 @@
 [project]
-name = "litellm-updater"
-version = "0.5.21"
+name = "litellm-companion"
+version = "0.5.22"
 description = "Synchronize models from Ollama or OpenAI-compatible endpoints into LiteLLM"
 authors = [
-  {name = "LiteLLM Updater Authors", email = "dev@example.com"}
+  {name = "LiteLLM Companion Authors", email = "dev@example.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-litellm-updater = "litellm_updater.main:run"
+litellm-companion = "litellm_updater.main:run"
 
 [build-system]
 requires = ["setuptools>=67", "wheel"]

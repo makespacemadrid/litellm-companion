@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
     app = FastAPI(
-        title="LiteLLM Updater",
+        title="LiteLLM Companion",
         description="Model synchronization UI and API",
         version=APP_VERSION,
         lifespan=lifespan

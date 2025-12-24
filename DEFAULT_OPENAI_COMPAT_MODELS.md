@@ -435,4 +435,4 @@ See `scripts/register_default_compat_models.sh` for automated registration.
 
 **Document Version:** 1.0
 **Last Updated:** 2025-11-29
-**Maintainer:** LiteLLM Updater Project
+**Maintainer:** LiteLLM Companion Project
