@@ -395,6 +395,8 @@ async def update_model_params(
     sync_enabled: bool | None = None,
     pricing_profile: str | None = None,
     pricing_override: dict | None = None,
+    ollama_mode: str | None = None,
+    ollama_mode_provided: bool = False,
     config: Config | None = None,
 ) -> Model:
     """Update model with user-edited parameters, tags, access_groups, and sync settings."""
@@ -410,9 +412,11 @@ async def update_model_params(
         model.pricing_profile = pricing_profile
     if pricing_override is not None:
         model.pricing_override_dict = pricing_override
+    if ollama_mode_provided:
+        model.ollama_mode = ollama_mode
 
-    if user_params is not None or user_tags is not None or access_groups is not None or sync_enabled is not None or pricing_profile is not None or pricing_override is not None:
-        if user_params is not None or user_tags is not None or access_groups is not None or pricing_profile is not None or pricing_override is not None:
+    if user_params is not None or user_tags is not None or access_groups is not None or sync_enabled is not None or pricing_profile is not None or pricing_override is not None or ollama_mode_provided:
+        if user_params is not None or user_tags is not None or access_groups is not None or pricing_profile is not None or pricing_override is not None or ollama_mode_provided:
             model.user_modified = True
         model.updated_at = datetime.now(UTC)
 
@@ -488,6 +492,7 @@ async def create_compat_model(
     mapped_model_id: str | None = None,
     user_params: dict | None = None,
     mode: str | None = None,
+    ollama_mode: str | None = None,
     access_groups: list[str] | None = None,
 ) -> Model:
     """Create a new compat model."""
@@ -510,6 +515,7 @@ async def create_compat_model(
         raw_metadata=json.dumps({"type": "compat"}),
         mapped_provider_id=mapped_provider_id,
         mapped_model_id=mapped_model_id,
+        ollama_mode=ollama_mode,
         first_seen=datetime.now(UTC),
         last_seen=datetime.now(UTC),
         is_orphaned=False,
@@ -534,6 +540,8 @@ async def update_compat_model(
     mapped_model_id: str | None = None,
     user_params: dict | None = None,
     mode: str | None = None,
+    ollama_mode: str | None = None,
+    ollama_mode_provided: bool = False,
     access_groups: list[str] | None = None,
 ) -> Model:
     """Update a compat model's mapping and parameters."""
@@ -558,6 +566,8 @@ async def update_compat_model(
         model.user_params = json.dumps(params) if params else None
     if access_groups is not None:
         model.access_groups_list = normalize_tags(access_groups)
+    if ollama_mode_provided:
+        model.ollama_mode = ollama_mode
 
     model.updated_at = datetime.now(UTC)
     return model

@@ -35,6 +35,17 @@ def _normalize_mode(raw: str | None) -> str | None:
     return None
 
 
+def _normalize_ollama_mode(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    if value in {"ollama", "openai"}:
+        return value
+    if value in {"", "default"}:
+        return None
+    return "invalid"
+
+
 @router.get("/models")
 async def list_compat_models(session: AsyncSession = Depends(get_session)):
     """List all compat models."""
@@ -68,6 +79,7 @@ async def list_compat_models(session: AsyncSession = Depends(get_session)):
                 "mapped_provider": mapped_provider,
                 "access_groups": model.get_effective_access_groups(),
                 "mode": (model.user_params_dict or {}).get("mode") or "default",
+                "ollama_mode": model.ollama_mode,
             }
         )
 
@@ -80,6 +92,7 @@ async def create_compat_model_endpoint(
     mapped_provider_id: int | None = Form(None),
     mapped_model_id: str | None = Form(None),
     mode: str | None = Form("default"),
+    ollama_mode: str | None = Form(None),
     access_groups: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ):
@@ -89,12 +102,16 @@ async def create_compat_model_endpoint(
         raise HTTPException(400, "Invalid mode")
     if normalized_mode == "default":
         normalized_mode = None
+    normalized_ollama_mode = _normalize_ollama_mode(ollama_mode)
+    if normalized_ollama_mode == "invalid":
+        raise HTTPException(400, "Invalid ollama_mode")
     model = await create_compat_model(
         session,
         model_name=model_name,
         mapped_provider_id=mapped_provider_id,
         mapped_model_id=mapped_model_id,
         mode=normalized_mode,
+        ollama_mode=normalized_ollama_mode,
         access_groups=_parse_csv_list(access_groups),
     )
     return {"id": model.id, "message": "Compat model created"}
@@ -106,6 +123,7 @@ async def update_compat_model_endpoint(
     mapped_provider_id: int | None = Form(None),
     mapped_model_id: str | None = Form(None),
     mode: str | None = Form(None),
+    ollama_mode: str | None = Form(None),
     access_groups: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ):
@@ -117,6 +135,10 @@ async def update_compat_model_endpoint(
     normalized_mode = _normalize_mode(mode)
     if mode is not None and normalized_mode is None:
         raise HTTPException(400, "Invalid mode")
+    normalized_ollama_mode = _normalize_ollama_mode(ollama_mode)
+    if ollama_mode is not None and normalized_ollama_mode == "invalid":
+        raise HTTPException(400, "Invalid ollama_mode")
+    ollama_mode_provided = ollama_mode is not None
 
     await update_compat_model(
         session,
@@ -124,6 +146,8 @@ async def update_compat_model_endpoint(
         mapped_provider_id=mapped_provider_id,
         mapped_model_id=mapped_model_id,
         mode=normalized_mode,
+        ollama_mode=normalized_ollama_mode,
+        ollama_mode_provided=ollama_mode_provided,
         access_groups=_parse_csv_list(access_groups),
     )
     return {"message": "Compat model updated"}

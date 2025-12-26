@@ -226,6 +226,11 @@ async def push_model_to_litellm(
             model=model,
         )
 
+    # Ensure default pricing fields are present if missing
+    for key, value in model.litellm_params_dict.items():
+        if "cost" in key or key == "tiered_pricing":
+            model_info.setdefault(key, value)
+
     # Copy pricing fields into litellm_params so LiteLLM can bill requests
     _merge_pricing_fields(litellm_params, model_info)
 
@@ -240,14 +245,20 @@ async def push_model_to_litellm(
             model_info["supports_fill_in_middle"] = True
             model_info["supports_code_infilling"] = True
 
+    model_mode = _get_model_mode(model)
+
     if provider.type == "openai":
         model_info["litellm_provider"] = "openai"
+        if model_mode == "completion":
+            model_info["supports_completion"] = True
     elif provider.type == "ollama":
         model_info["mode"] = ollama_mode
         if ollama_mode == "openai":
             model_info["litellm_provider"] = "openai"
         else:
             model_info["litellm_provider"] = "ollama"
+        if model_mode == "completion":
+            model_info["supports_completion"] = True
     elif provider.type == "compat":
         compat_mode = _get_compat_mode(model)
         model_info.setdefault("mode", "completion" if compat_mode == "completion" else "chat")
@@ -408,19 +419,38 @@ def _get_compat_mode(model) -> str:
     return "completion" if mode == "completion" else "chat"
 
 
+def _get_model_mode(model) -> str:
+    """Return model mode (chat or completion)."""
+    mode = (model.user_params_dict or {}).get("mode")
+    return "completion" if mode == "completion" else "chat"
+
+
 async def _build_litellm_params(provider, model, session=None) -> dict:
     """Build litellm_params for a model."""
     litellm_params = {}
     model_id = model.model_id
 
     ollama_mode = model.ollama_mode or provider.default_ollama_mode or "ollama_chat"
+    request_mode = _get_model_mode(model)
 
     if provider.type == "openai":
-        litellm_params["model"] = f"openai/{model_id}"
+        if request_mode == "completion":
+            litellm_params["model"] = f"text-completion-openai/{model_id}"
+        else:
+            litellm_params["model"] = f"openai/{model_id}"
         litellm_params["api_base"] = provider.base_url
         litellm_params["api_key"] = provider.api_key or "sk-1234"
     elif provider.type == "ollama":
-        if ollama_mode == "openai":
+        if request_mode == "completion":
+            if ollama_mode == "openai":
+                litellm_params["model"] = f"text-completion-openai/{model_id}"
+                api_base = provider.base_url.rstrip("/")
+                litellm_params["api_base"] = f"{api_base}/v1"
+                litellm_params["api_key"] = provider.api_key or "sk-1234"
+            else:
+                litellm_params["model"] = f"ollama/{model_id}"
+                litellm_params["api_base"] = provider.base_url
+        elif ollama_mode == "openai":
             litellm_params["model"] = f"openai/{model_id}"
             api_base = provider.base_url.rstrip("/")
             litellm_params["api_base"] = f"{api_base}/v1"
@@ -456,6 +486,7 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
                     # Get the mapped model to determine ollama_mode
                     mapped_model = await get_model_by_provider_and_name(session, model.mapped_provider_id, model.mapped_model_id)
                     mapped_ollama_mode = (
+                        model.ollama_mode or
                         (mapped_model.ollama_mode if mapped_model else None) or
                         mapped_provider.default_ollama_mode or
                         "ollama_chat"

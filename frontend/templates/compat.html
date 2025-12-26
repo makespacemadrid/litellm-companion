@@ -88,6 +88,16 @@
           Choose chat or text-completion routing for this alias.
         </p>
 
+        <label>Ollama Mode Override</label>
+        <select id="compat-ollama-mode">
+          <option value="default">Default</option>
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI</option>
+        </select>
+        <p class="muted" style="margin-top: -0.5rem; margin-bottom: 1rem;">
+          Override how Ollama mappings are routed (only applies when mapped provider is Ollama).
+        </p>
+
         <label>Access Groups (comma separated)</label>
         <input type="text" id="compat-access-groups" value="compat" placeholder="compat, premium" />
 
@@ -575,6 +585,7 @@ function openAddCompatModal() {
   document.getElementById('compat-form').reset();
   document.getElementById('compat-model-id').value = '';
   document.getElementById('compat-mode').value = 'default';
+  document.getElementById('compat-ollama-mode').value = 'default';
   document.getElementById('compat-access-groups').value = 'compat';  // Set default access group
   document.getElementById('compat-modal').style.display = 'block';
   updateProviderDropdown();
@@ -589,6 +600,7 @@ async function editCompatModel(modelId) {
   document.getElementById('compat-name').value = model.model_name;
   document.getElementById('compat-access-groups').value = model.access_groups ? model.access_groups.join(', ') : '';
   document.getElementById('compat-mode').value = model.mode || 'default';
+  document.getElementById('compat-ollama-mode').value = model.ollama_mode || 'default';
 
   if (model.mapped_provider) {
     document.getElementById('compat-provider').value = model.mapped_provider.id;
@@ -611,6 +623,7 @@ async function saveCompatModel(event) {
   const providerId = document.getElementById('compat-provider').value;
   const mappedModelId = document.getElementById('compat-mapped-model').value;
   const mode = document.getElementById('compat-mode').value;
+  const ollamaMode = document.getElementById('compat-ollama-mode').value;
   const accessGroups = document.getElementById('compat-access-groups').value;
 
   const formData = new FormData();
@@ -618,6 +631,7 @@ async function saveCompatModel(event) {
   if (providerId) formData.append('mapped_provider_id', providerId);
   if (mappedModelId) formData.append('mapped_model_id', mappedModelId);
   if (mode) formData.append('mode', mode);
+  if (ollamaMode) formData.append('ollama_mode', ollamaMode);
   if (accessGroups) formData.append('access_groups', accessGroups);
 
   try {

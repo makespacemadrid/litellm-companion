@@ -43,6 +43,17 @@ def _normalize_list(raw) -> list | None:
     return None
 
 
+def _normalize_mode(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    if value in {"chat", "completion"}:
+        return value
+    if value in {"", "default"}:
+        return "default"
+    return None
+
+
 def _model_response(model: Model) -> dict:
     """Serialize a model for API responses."""
     provider = model.provider
@@ -100,6 +111,26 @@ async def update_model_parameters(
     tags = _normalize_list(payload.get("tags"))
     access_groups = _normalize_list(payload.get("access_groups"))
     sync_enabled = _parse_bool(payload.get("sync_enabled"))
+    mode = _normalize_mode(payload.get("mode"))
+    ollama_mode_provided = "ollama_mode" in payload
+    ollama_mode = payload.get("ollama_mode")
+
+    if mode is None and payload.get("mode") is not None:
+        raise HTTPException(400, "Invalid mode")
+    if isinstance(ollama_mode, str):
+        ollama_mode = ollama_mode.strip()
+    if ollama_mode == "":
+        ollama_mode = None
+    if ollama_mode is not None and ollama_mode not in {"ollama", "openai"}:
+        raise HTTPException(400, "Invalid ollama_mode")
+
+    if mode is not None:
+        if params is None:
+            params = {}
+        if mode == "default":
+            params.pop("mode", None)
+        elif mode:
+            params["mode"] = mode
 
     # Parse pricing override fields
     pricing_profile = payload.get("pricing_profile")
@@ -124,6 +155,8 @@ async def update_model_parameters(
         sync_enabled=sync_enabled,
         pricing_profile=pricing_profile,
         pricing_override=pricing_override,
+        ollama_mode=ollama_mode,
+        ollama_mode_provided=ollama_mode_provided,
         config=config,
     )
 

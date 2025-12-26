@@ -37,13 +37,25 @@
         <label>Model Parameters (JSON)</label>
         <textarea id="config-params" rows="10"></textarea>
 
-        <label>Ollama Mode</label>
-        <select id="config-mode">
-          <option value="">Default</option>
-          <option value="ollama_chat">Ollama Chat</option>
-          <option value="ollama">Ollama</option>
-          <option value="openai">OpenAI</option>
-        </select>
+        <input type="hidden" id="config-provider-type" />
+
+        <div id="config-request-mode-row">
+          <label>Request Mode</label>
+          <select id="config-request-mode">
+            <option value="default">Default</option>
+            <option value="chat">Chat</option>
+            <option value="completion">Text completion</option>
+          </select>
+        </div>
+
+        <div id="config-ollama-mode-row">
+          <label>Ollama Mode Override</label>
+          <select id="config-ollama-mode">
+            <option value="">Default</option>
+            <option value="ollama">Ollama</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
 
         <label>Pricing Profile</label>
         <select id="config-pricing-profile">
@@ -796,10 +808,15 @@ async function openConfigureModal(modelId) {
 
     document.getElementById('config-model-id').value = modelId;
     document.getElementById('modal-title').textContent = `Configure ${model.display_name}`;
+    const providerType = model.provider?.type || '';
+    document.getElementById('config-provider-type').value = providerType;
     const paramsForEditor = { ...(model.effective_params || {}) };
     delete paramsForEditor.tags;
     document.getElementById('config-params').value = JSON.stringify(paramsForEditor, null, 2);
-    document.getElementById('config-mode').value = model.ollama_mode || '';
+    document.getElementById('config-request-mode').value = model.user_params?.mode || 'default';
+    document.getElementById('config-ollama-mode').value = model.ollama_mode || '';
+    document.getElementById('config-request-mode-row').style.display = ['openai', 'ollama'].includes(providerType) ? 'block' : 'none';
+    document.getElementById('config-ollama-mode-row').style.display = providerType === 'ollama' ? 'block' : 'none';
     const currentTags = (model.user_tags && model.user_tags.length > 0) ? model.user_tags : (model.tags || []);
     document.getElementById('config-tags').value = currentTags.join(', ');
     const currentAccessGroups = model.access_groups || [];
@@ -850,6 +867,9 @@ async function saveModelConfig() {
   const pricingProfile = document.getElementById('config-pricing-profile').value;
   const pricingInput = document.getElementById('config-pricing-input').value;
   const pricingOutput = document.getElementById('config-pricing-output').value;
+  const providerType = document.getElementById('config-provider-type').value;
+  const requestMode = document.getElementById('config-request-mode').value;
+  const ollamaMode = document.getElementById('config-ollama-mode').value;
 
   let params;
   try {
@@ -860,6 +880,12 @@ async function saveModelConfig() {
   }
 
   try {
+    if (requestMode && requestMode !== 'default') {
+      params.mode = requestMode;
+    } else {
+      delete params.mode;
+    }
+
     const payload = {
       params,
       tags,
@@ -869,6 +895,9 @@ async function saveModelConfig() {
     };
     if (pricingInput) payload.input_cost_per_token = parseFloat(pricingInput);
     if (pricingOutput) payload.output_cost_per_token = parseFloat(pricingOutput);
+    if (providerType === 'ollama') {
+      payload.ollama_mode = ollamaMode || null;
+    }
 
     const response = await fetch(`/api/models/${modelId}/params`, {
       method: 'PATCH',
