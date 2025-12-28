@@ -318,6 +318,12 @@ async def push_model_to_litellm(
         "model_info": model_info
     }
 
+    # Debug logging for API key
+    if litellm_params.get("api_key"):
+        logger.info(f"Pushing model {display_name} with API key: {litellm_params['api_key'][:4]}***")
+    else:
+        logger.warning(f"Pushing model {display_name} WITHOUT API key! litellm_params: {litellm_params}")
+
     response = await client.post(url, json=payload, headers=headers, timeout=DEFAULT_TIMEOUT)
     response.raise_for_status()
 
@@ -450,6 +456,8 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
             else:
                 litellm_params["model"] = f"ollama/{model_id}"
                 litellm_params["api_base"] = provider.base_url
+                if provider.api_key:
+                    litellm_params["api_key"] = provider.api_key
         elif ollama_mode == "openai":
             litellm_params["model"] = f"openai/{model_id}"
             api_base = provider.base_url.rstrip("/")
@@ -458,10 +466,14 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
         elif ollama_mode == "ollama":
             litellm_params["model"] = f"ollama/{model_id}"
             litellm_params["api_base"] = provider.base_url
+            if provider.api_key:
+                litellm_params["api_key"] = provider.api_key
         else:
             # Use ollama_chat as the preferred default
             litellm_params["model"] = f"ollama_chat/{model_id}"
             litellm_params["api_base"] = provider.base_url
+            if provider.api_key:
+                litellm_params["api_key"] = provider.api_key
     elif provider.type == "compat":
         # Compat models need to resolve their mapping to the actual provider/model
         compat_mode = _get_compat_mode(model)
@@ -512,6 +524,8 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
                         elif mapped_ollama_mode == "ollama":
                             litellm_params["model"] = f"ollama/{model.mapped_model_id}"
                             litellm_params["api_base"] = mapped_provider.base_url
+                            if mapped_provider.api_key:
+                                litellm_params["api_key"] = mapped_provider.api_key
                         else:
                             # Use ollama_chat as the preferred default for chat mode
                             if compat_mode == "completion":
@@ -519,6 +533,8 @@ async def _build_litellm_params(provider, model, session=None) -> dict:
                             else:
                                 litellm_params["model"] = f"ollama_chat/{model.mapped_model_id}"
                             litellm_params["api_base"] = mapped_provider.base_url
+                            if mapped_provider.api_key:
+                                litellm_params["api_key"] = mapped_provider.api_key
                     else:
                         logger.warning(f"Unsupported mapped provider type {mapped_provider.type} for compat model {model_id}")
                         litellm_params["model"] = model_id
