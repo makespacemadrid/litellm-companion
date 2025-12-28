@@ -124,17 +124,47 @@ class SyncWorker:
                 if not provider:
                     logger.debug("Provider id %s no longer exists, skipping", provider_id)
                     continue
-                if provider.type in ("compat", "completion"):
-                    logger.debug("Skipping managed provider: %s", provider.name)
-                    continue
                 if not provider.sync_enabled:
                     logger.debug("Skipping disabled provider: %s", provider.name)
                     continue
 
                 try:
+                    # Handle compat providers separately (push-only, no fetch)
+                    if provider.type in ("compat", "completion"):
+                        logger.info("📤 Pushing compat provider to LiteLLM: %s", provider.name)
+
+                        # Import here to avoid circular dependency
+                        from shared.crud import get_models_by_provider
+                        from backend.litellm_client import reconcile_litellm_models
+
+                        # Get all non-orphaned, sync-enabled models
+                        all_models = await get_models_by_provider(session, provider.id, include_orphaned=True)
+
+                        # Push to LiteLLM (reconcile will add/update/delete as needed)
+                        if config_snapshot.get("litellm_base_url"):
+                            stats = await reconcile_litellm_models(
+                                session,
+                                _ConfigWrapper(config_snapshot),
+                                provider,
+                                all_models,
+                                remove_orphaned=True
+                            )
+                            await session.commit()
+
+                            logger.info(
+                                "✓ Provider %s pushed: %d added, %d updated, %d deleted",
+                                provider.name,
+                                stats.get("added", 0) if stats else 0,
+                                stats.get("updated", 0) if stats else 0,
+                                stats.get("deleted", 0) if stats else 0
+                            )
+                        else:
+                            logger.debug("LiteLLM not configured, skipping push for %s", provider.name)
+                        continue
+
                     logger.info("📡 Syncing provider: %s (%s)", provider.name, provider.type)
 
-                    # Sync this provider
+                    # Sync this provider (fetch + push)
                     stats = await sync_provider(session, _ConfigWrapper(config_snapshot), provider, push_to_litellm=True)
 
                     await session.commit()

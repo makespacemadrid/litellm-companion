@@ -362,6 +362,19 @@ async def delete_model_from_litellm(client: httpx.AsyncClient, base_url: str, ap
     response.raise_for_status()
 
 
+def _normalize_value(value):
+    """Normalize a value for comparison (handles string/float pricing values)."""
+    if value is None:
+        return None
+    # Try to convert strings to float for numeric comparison
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+    return value
+
+
 async def _needs_update(provider, model, litellm_model, config=None, session=None) -> bool:
     """
     Check if a model in LiteLLM needs to be updated based on database model.
@@ -400,7 +413,7 @@ async def _needs_update(provider, model, litellm_model, config=None, session=Non
         logger.debug("Access groups changed: %s != %s", db_access_groups, ll_access_groups)
         return True
 
-    # Check pricing differences
+    # Check pricing differences (with normalization to handle string/float inconsistencies)
     effective_info = apply_pricing_overrides(
         model.effective_params,
         config=config,
@@ -409,11 +422,20 @@ async def _needs_update(provider, model, litellm_model, config=None, session=Non
     )
     ll_info = litellm_model.get('model_info', {})
     ll_params = litellm_model.get('litellm_params', {})
+
     for key, value in effective_info.items():
         if "cost" not in key:
             continue
-        if ll_info.get(key) != value or ll_params.get(key) != value:
-            logger.debug("Pricing changed for %s: %s != %s", key, ll_info.get(key), value)
+        ll_info_val = ll_info.get(key)
+        ll_params_val = ll_params.get(key)
+
+        # Normalize values for comparison (handles string/float pricing)
+        db_normalized = _normalize_value(value)
+        ll_info_normalized = _normalize_value(ll_info_val)
+        ll_params_normalized = _normalize_value(ll_params_val)
+
+        if ll_info_normalized != db_normalized or ll_params_normalized != db_normalized:
+            logger.debug("Pricing changed for %s: ll_info=%s, ll_params=%s, db=%s", key, ll_info_val, ll_params_val, value)
             return True
 
     return False

@@ -467,12 +467,12 @@ function renderTabs() {
           ${p.prefix ? `<br><span class="muted">Prefix: <strong>${p.prefix}</strong></span>` : ''}
         </div>
         <div class="tab-panel-actions">
+          <label class="toggle-label">
+            <input type="checkbox" id="provider-sync-${p.id}" ${p.sync_enabled ? 'checked' : ''}
+                   onchange="toggleProviderSync(${p.id}, this.checked)">
+            <span>Sync Enabled</span>
+          </label>
           ${p.type !== 'compat' && p.type !== 'completion' ? `
-            <label class="toggle-label">
-              <input type="checkbox" id="provider-sync-${p.id}" ${p.sync_enabled ? 'checked' : ''}
-                     onchange="toggleProviderSync(${p.id}, this.checked)">
-              <span>Sync Enabled</span>
-            </label>
             <button class="btn-primary" onclick="fetchProvider(${p.id})">Fetch</button>
             <button class="btn-refresh" onclick="syncProvider(${p.id})">Sync</button>
           ` : ''}
