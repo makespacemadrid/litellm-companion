@@ -315,39 +315,65 @@ def create_app() -> FastAPI:
     @app.post("/sync")
     async def manual_sync(request: Request, session = Depends(get_session)):
         """
-        Manual sync trigger - spawns a background task so the UI does not time out.
+        Manual sync trigger - runs synchronously and returns detailed results.
         Sync = fetch from providers and push to LiteLLM.
         """
-        from shared.database import async_session_maker  # use global session maker set in lifespan
-
-        # Snapshot providers/config first
+        # Get providers and config
         providers_list = await get_all_providers(session)
         config = await get_config(session)
-        provider_ids = [
-            p.id for p in providers_list if p.sync_enabled and p.type not in ("compat", "completion")
+        enabled_providers = [
+            p for p in providers_list if p.sync_enabled and p.type not in ("compat", "completion")
         ]
-        provider_names = [p.name for p in providers_list if p.id in provider_ids]
 
-        async def _run_sync():
-            if async_session_maker is None:
-                return
-            for pid in provider_ids:
-                async with async_session_maker() as sync_session:
-                    provider = await get_provider_by_id(sync_session, pid)
-                    if not provider:
-                        continue
-                    try:
-                        cfg = await get_config(sync_session)
-                        # Full sync: fetch then push to LiteLLM
-                        await provider_sync.sync_provider(sync_session, cfg, provider, push_to_litellm=True)  # type: ignore[arg-type]
-                        await sync_session.commit()
-                    except Exception:
-                        await sync_session.rollback()
+        # Track results
+        results = {
+            "total_providers": len(enabled_providers),
+            "providers": [],
+            "total_models_fetched": 0,
+            "errors": []
+        }
 
-        import asyncio
+        # Sync each provider
+        for provider in enabled_providers:
+            provider_result = {
+                "name": provider.name,
+                "status": "success",
+                "models_fetched": 0,
+                "models_added": 0,
+                "models_updated": 0,
+                "models_orphaned": 0,
+                "error": None
+            }
 
-        asyncio.create_task(_run_sync())
-        return {"status": "started", "providers": provider_names}
+            try:
+                # Run sync for this provider
+                sync_result = await provider_sync.sync_provider(
+                    session, config, provider, push_to_litellm=True
+                )
+
+                # Extract results if available
+                if isinstance(sync_result, dict):
+                    added = sync_result.get("added", 0)
+                    updated = sync_result.get("updated", 0)
+                    orphaned = sync_result.get("orphaned", 0)
+                    provider_result["models_fetched"] = added + updated
+                    provider_result["models_added"] = added
+                    provider_result["models_updated"] = updated
+                    provider_result["models_orphaned"] = orphaned
+                    results["total_models_fetched"] += provider_result["models_fetched"]
+
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                provider_result["status"] = "error"
+                provider_result["error"] = str(e)
+                results["errors"].append(f"{provider.name}: {str(e)}")
+                logger.exception(f"Error syncing provider {provider.name}")
+
+            results["providers"].append(provider_result)
+
+        results["success"] = len(results["errors"]) == 0
+        return results
 
     @app.post("/admin/providers")
     async def create_provider_legacy(

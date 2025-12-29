@@ -75,12 +75,31 @@
     </div>
     <div>
       <h3>Actions</h3>
-      <form action="/sync" method="post">
+      <form id="sync-form" action="/sync" method="post">
         <button type="submit" class="btn-primary">Run sync now</button>
       </form>
     </div>
   </div>
 </section>
+
+<!-- Sync Progress Modal -->
+<div id="sync-modal" class="sync-modal">
+  <div class="sync-modal-content">
+    <div class="sync-modal-header">
+      <h2>Synchronization Progress</h2>
+    </div>
+    <div class="sync-modal-body" id="sync-modal-body">
+      <div class="sync-progress">
+        <div class="sync-spinner"></div>
+        <p>Synchronizing providers...</p>
+      </div>
+    </div>
+    <div class="sync-modal-footer" id="sync-modal-footer" style="display: none;">
+      <button class="btn-primary" onclick="closeSyncModal()">Close</button>
+      <button class="btn-secondary" onclick="window.location.reload()">Reload Page</button>
+    </div>
+  </div>
+</div>
 
 <section class="panel">
   <h2>Providers</h2>
@@ -198,5 +217,310 @@
   border-radius: 4px;
   cursor: pointer;
 }
+.btn-secondary {
+  background: #616161;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Sync Modal Styles */
+.sync-modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.sync-modal-content {
+  background-color: #fff;
+  margin: 5% auto;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 700px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.sync-modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.sync-modal-header h2 {
+  margin: 0;
+  color: #1976d2;
+}
+
+.sync-modal-body {
+  padding: 2rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.sync-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.sync-progress {
+  text-align: center;
+  padding: 2rem;
+}
+
+.sync-spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #1976d2;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.sync-results {
+  text-align: left;
+}
+
+.sync-summary {
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.sync-summary h3 {
+  margin: 0 0 0.5rem 0;
+  color: #1976d2;
+}
+
+.sync-stat {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.5rem 0;
+}
+
+.sync-stat-label {
+  font-weight: 500;
+  color: #666;
+}
+
+.sync-stat-value {
+  font-weight: 700;
+  color: #1976d2;
+}
+
+.provider-results {
+  margin-top: 1rem;
+}
+
+.provider-result {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.provider-result.error {
+  background: #ffebee;
+  border-color: #ef5350;
+}
+
+.provider-result h4 {
+  margin: 0 0 0.75rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.provider-result.success h4::before {
+  content: '✓';
+  color: #4caf50;
+  font-size: 1.2rem;
+}
+
+.provider-result.error h4::before {
+  content: '✗';
+  color: #f44336;
+  font-size: 1.2rem;
+}
+
+.provider-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.provider-stat {
+  background: white;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.provider-stat-label {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.provider-stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.error-message {
+  color: #d32f2f;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const syncForm = document.getElementById('sync-form');
+  const syncModal = document.getElementById('sync-modal');
+  const syncModalBody = document.getElementById('sync-modal-body');
+  const syncModalFooter = document.getElementById('sync-modal-footer');
+
+  if (syncForm) {
+    syncForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Show modal with progress indicator
+      syncModal.style.display = 'block';
+      syncModalBody.innerHTML = `
+        <div class="sync-progress">
+          <div class="sync-spinner"></div>
+          <p>Synchronizing providers...</p>
+        </div>
+      `;
+      syncModalFooter.style.display = 'none';
+
+      try {
+        const response = await fetch('/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const results = await response.json();
+
+        // Display results
+        let html = '<div class="sync-results">';
+
+        // Summary
+        html += `
+          <div class="sync-summary">
+            <h3>Synchronization ${results.success ? 'Completed' : 'Completed with Errors'}</h3>
+            <div class="sync-stat">
+              <span class="sync-stat-label">Total Providers</span>
+              <span class="sync-stat-value">${results.total_providers}</span>
+            </div>
+            <div class="sync-stat">
+              <span class="sync-stat-label">Total Models Fetched</span>
+              <span class="sync-stat-value">${results.total_models_fetched}</span>
+            </div>
+            ${results.errors.length > 0 ? `
+              <div class="sync-stat">
+                <span class="sync-stat-label">Errors</span>
+                <span class="sync-stat-value" style="color: #d32f2f;">${results.errors.length}</span>
+              </div>
+            ` : ''}
+          </div>
+        `;
+
+        // Provider results
+        if (results.providers.length > 0) {
+          html += '<div class="provider-results">';
+          html += '<h3 style="margin-bottom: 1rem;">Provider Details</h3>';
+
+          results.providers.forEach(provider => {
+            const isError = provider.status === 'error';
+            html += `
+              <div class="provider-result ${isError ? 'error' : 'success'}">
+                <h4>${provider.name}</h4>
+                ${!isError ? `
+                  <div class="provider-stats">
+                    <div class="provider-stat">
+                      <div class="provider-stat-label">Fetched</div>
+                      <div class="provider-stat-value">${provider.models_fetched}</div>
+                    </div>
+                    <div class="provider-stat">
+                      <div class="provider-stat-label">Added</div>
+                      <div class="provider-stat-value">${provider.models_added}</div>
+                    </div>
+                    <div class="provider-stat">
+                      <div class="provider-stat-label">Updated</div>
+                      <div class="provider-stat-value">${provider.models_updated}</div>
+                    </div>
+                    <div class="provider-stat">
+                      <div class="provider-stat-label">Orphaned</div>
+                      <div class="provider-stat-value">${provider.models_orphaned}</div>
+                    </div>
+                  </div>
+                ` : `
+                  <div class="error-message">Error: ${provider.error}</div>
+                `}
+              </div>
+            `;
+          });
+
+          html += '</div>';
+        }
+
+        html += '</div>';
+
+        syncModalBody.innerHTML = html;
+        syncModalFooter.style.display = 'flex';
+
+      } catch (error) {
+        syncModalBody.innerHTML = `
+          <div class="sync-results">
+            <div class="provider-result error">
+              <h4>Synchronization Failed</h4>
+              <div class="error-message">${error.message}</div>
+            </div>
+          </div>
+        `;
+        syncModalFooter.style.display = 'flex';
+      }
+    });
+  }
+});
+
+function closeSyncModal() {
+  document.getElementById('sync-modal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+  const modal = document.getElementById('sync-modal');
+  if (event.target === modal) {
+    closeSyncModal();
+  }
+};
+</script>
 {% endblock %}
