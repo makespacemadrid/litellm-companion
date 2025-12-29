@@ -110,7 +110,11 @@ async def fetch_ollama_models(client: httpx.AsyncClient, source: SourceEndpoint)
     try:
         payload = response.json()
     except Exception as exc:
-        raise ValueError(f"Invalid JSON response from Ollama server: {exc}") from exc
+        raise ValueError(
+            f"Invalid JSON response from {source.name} at {url}. "
+            f"The endpoint might not be an Ollama server. "
+            f"Response: {response.text[:200]}"
+        ) from exc
 
     # Support both {"models": [...]} and bare list payloads
     models = []
@@ -191,8 +195,18 @@ async def fetch_openai_models(client: httpx.AsyncClient, source: SourceEndpoint)
     try:
         payload = response.json()
     except Exception as exc:
-        raise ValueError(f"Invalid JSON response from LiteLLM server: {exc}") from exc
+        raise ValueError(
+            f"Invalid JSON response from {source.name} at {url}. "
+            f"The endpoint might not be OpenAI-compatible. "
+            f"Response: {response.text[:200]}"
+        ) from exc
     models = payload.get("data", [])
+
+    if not models:
+        logger.warning(
+            f"No models found in response from {source.name}. "
+            f"The API might require authentication or the endpoint might be incorrect."
+        )
     results: list[ModelMetadata] = []
     for model in models:
         model_id = model.get("id", "unknown")
@@ -266,12 +280,29 @@ async def fetch_litellm_target_models(target: LitellmDestination) -> list[ModelM
 async def fetch_source_models(source: SourceEndpoint) -> SourceModels:
     """Dispatch to the correct fetcher based on the source type."""
 
-    async with httpx.AsyncClient() as client:
-        if source.type is SourceType.OLLAMA:
-            models = await fetch_ollama_models(client, source)
-        elif source.type is SourceType.OPENAI:
-            models = await fetch_openai_models(client, source)
-        else:  # pragma: no cover - defensive
-            raise ValueError(f"Unsupported source type: {source.type}")
+    try:
+        async with httpx.AsyncClient() as client:
+            if source.type is SourceType.OLLAMA:
+                models = await fetch_ollama_models(client, source)
+            elif source.type is SourceType.OPENAI:
+                models = await fetch_openai_models(client, source)
+            else:  # pragma: no cover - defensive
+                raise ValueError(f"Unsupported source type: {source.type}")
 
-    return SourceModels(source=source, models=models, fetched_at=datetime.now(UTC))
+        return SourceModels(source=source, models=models, fetched_at=datetime.now(UTC))
+
+    except httpx.ConnectError as e:
+        raise ConnectionError(
+            f"Cannot connect to {source.name} at {source.base_url}. "
+            f"Check that the URL is correct and the service is running. "
+            f"Error: {str(e)}"
+        ) from e
+    except httpx.TimeoutException as e:
+        raise TimeoutError(
+            f"Connection to {source.name} at {source.base_url} timed out. "
+            f"The service might be slow or unresponsive."
+        ) from e
+    except httpx.HTTPStatusError as e:
+        raise RuntimeError(
+            f"{source.name} returned HTTP {e.response.status_code}: {e.response.text[:200]}"
+        ) from e

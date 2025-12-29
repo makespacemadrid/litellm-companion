@@ -413,6 +413,63 @@ def create_app() -> FastAPI:
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/admin", status_code=303)
 
+    @app.post("/api/providers/test-connection")
+    async def test_provider_connection(
+        base_url: str = Form(...),
+        type: str = Form(...),
+        api_key: str | None = Form(None),
+    ):
+        """
+        Test connection to a provider without saving it.
+        Returns connection status and any error messages.
+        """
+        from shared.models import SourceEndpoint, SourceType
+        from shared.sources import fetch_source_models
+        import httpx
+
+        try:
+            # Create a test source endpoint
+            source = SourceEndpoint(
+                name="test",
+                base_url=base_url,
+                type=SourceType(type),
+                api_key=api_key,
+            )
+
+            # Try to fetch models (this will test the connection)
+            source_models = await fetch_source_models(source)
+
+            return {
+                "success": True,
+                "message": f"Successfully connected! Found {len(source_models.models)} models.",
+                "model_count": len(source_models.models)
+            }
+
+        except ConnectionError as e:
+            return {
+                "success": False,
+                "message": str(e),
+                "error_type": "connection_error"
+            }
+        except TimeoutError as e:
+            return {
+                "success": False,
+                "message": str(e),
+                "error_type": "timeout_error"
+            }
+        except ValueError as e:
+            return {
+                "success": False,
+                "message": str(e),
+                "error_type": "validation_error"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Unexpected error: {str(e)}",
+                "error_type": "unknown_error"
+            }
+
     @app.get("/health")
     async def health():
         """Health check endpoint."""
