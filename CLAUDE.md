@@ -490,6 +490,15 @@ open http://localhost:4001/sources
 ```
 
 ## Recent Changes & Gotchas
+
+### v0.6.0 (2025-12-29)
+- **CRITICAL FIX**: Added `_normalize_value()` helper in `backend/litellm_client.py` to fix pricing comparison bug that caused 22 compat models to update unnecessarily every sync cycle (~264 API calls/hour eliminated). LiteLLM stores pricing as strings (`'1.5e-05'`) but we compared with floats (`1.5e-05`), causing false-positive updates.
+- **Compat provider auto-sync**: Compat providers can now enable `sync_enabled` to auto-push models to LiteLLM every sync interval. They don't fetch (manual aliases only), but now reconcile with LiteLLM automatically.
+- **API key support for all Ollama modes**: `backend/litellm_client.py` now passes `api_key` for native Ollama modes (`ollama`, `ollama_chat`) in addition to `openai` mode. Required for Ollama Cloud and authenticated endpoints.
+- **UI improvement**: Sync toggle moved outside type check in `frontend/templates/sources.html` so compat providers can enable/disable sync via UI (previously blocked by form validation).
+- **Performance**: Compat model sync time reduced from ~1.6s to ~0.08s (95% improvement) due to eliminating false-positive updates.
+
+### Previous Changes
 - The **frontend service must run `frontend.api:create_app`** factory pattern. This is configured via `command:` in docker-compose.yml.
 - Ollama `/api/tags` responses that return a bare list (instead of `{ "models": [...] }`) are now parsed correctly; this fixes empty syncs from some servers.
 - `mode:*` tags are only generated for Ollama providers. OpenAI/compat providers should no longer get `mode:ollama` attached to their models.
