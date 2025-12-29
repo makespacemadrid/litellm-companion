@@ -375,8 +375,8 @@ def create_app() -> FastAPI:
                 await session.rollback()
                 provider_result["status"] = "error"
                 provider_result["error"] = str(e)
-                results["errors"].append(f"{provider.name}: {str(e)}")
-                logger.exception(f"Error syncing provider {provider.name}")
+                results["errors"].append(f"{provider_result['name']}: {str(e)}")
+                logger.exception(f"Error syncing provider {provider_result['name']}")
 
             results["providers"].append(provider_result)
 
