@@ -242,13 +242,34 @@ def create_app() -> FastAPI:
                 or model_info.get("tags")
                 or []
             )
-            capabilities = model_info.get("capabilities") or []
+
+            # Extract capabilities from multiple sources
+            capabilities = []
+
+            # Check for explicit capabilities array
+            if model_info.get("capabilities"):
+                capabilities = model_info.get("capabilities")
+            else:
+                # Extract from supports_* fields
+                if model_info.get("supports_vision") or model_info.get("supports_image"):
+                    capabilities.append("Vision")
+                if model_info.get("supports_function_calling"):
+                    capabilities.append("Function Calling")
+                if model_info.get("supports_tool_choice"):
+                    capabilities.append("Tools")
+                if model_info.get("supports_audio"):
+                    capabilities.append("Audio")
+                if model_info.get("supports_embedding"):
+                    capabilities.append("Embedding")
+
             normalized_models.append({
                 "id": model_id,
                 "database_id": database_id,
                 "litellm_fields": m.get("litellm_fields") or model_info or {},
                 "tags": tags,
                 "capabilities": capabilities,
+                "max_input_tokens": model_info.get("max_input_tokens"),
+                "context_window": model_info.get("max_tokens") or model_info.get("context_window"),
                 "raw": m or {},
             })
 

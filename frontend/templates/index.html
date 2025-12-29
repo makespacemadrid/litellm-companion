@@ -40,7 +40,7 @@
       } %}
       {% for cat, count in stats.categories.items() %}
         {% if count > 0 %}
-        <div class="category-badge">
+        <div class="category-badge" onclick="window.location.href='/models?category={{ cat }}'">
           <span class="category-icon">{{ category_icons.get(cat, '📦') }}</span>
           <span class="category-name">{{ cat.capitalize() }}</span>
           <span class="category-count">{{ count }}</span>
@@ -141,10 +141,12 @@
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   transition: all 0.2s;
+  cursor: pointer;
 }
 .category-badge:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  border-color: #1976d2;
 }
 .category-icon {
   font-size: 1.5rem;

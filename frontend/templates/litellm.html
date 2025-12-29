@@ -101,14 +101,22 @@
 
         <!-- Capabilities (only actual capabilities, not model types) -->
         {% if capabilities and capabilities|length > 0 %}
+        {% set capability_icons = {
+          'vision': '👁️',
+          'function calling': '🔧',
+          'tools': '🔧',
+          'audio': '🎤',
+          'embedding': '🔢',
+          'thinking': '🧠',
+          'code': '💻'
+        } %}
         {% for capability in capabilities[:3] %}
-        <span class="badge badge-support">{{ capability }}</span>
+        {% set icon = capability_icons.get(capability.lower(), '✨') %}
+        <span class="badge badge-capability">{{ icon }} {{ capability }}</span>
         {% endfor %}
         {% if capabilities|length > 3 %}
         <span class="badge">+{{ capabilities|length - 3 }} más</span>
         {% endif %}
-        {% else %}
-        <span class="badge muted">No capabilities specified</span>
         {% endif %}
       </div>
 
