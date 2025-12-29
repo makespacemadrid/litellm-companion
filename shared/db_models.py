@@ -104,6 +104,8 @@ class Config(Base):
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     default_pricing_profile: Mapped[str | None] = mapped_column(String, nullable=True)
     default_pricing_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_results: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
@@ -129,6 +131,18 @@ class Config(Base):
     def default_pricing_override_dict(self, value: dict[str, Any] | None) -> None:
         """Store global pricing override as JSON."""
         self.default_pricing_override = json.dumps(value) if value else None
+
+    @property
+    def last_sync_results_dict(self) -> dict[str, Any]:
+        """Parsed last sync results JSON."""
+        if not self.last_sync_results:
+            return {}
+        return json.loads(self.last_sync_results)
+
+    @last_sync_results_dict.setter
+    def last_sync_results_dict(self, value: dict[str, Any] | None) -> None:
+        """Store last sync results as JSON."""
+        self.last_sync_results = json.dumps(value) if value else None
 
 
 class Model(Base):

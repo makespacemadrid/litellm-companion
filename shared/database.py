@@ -141,6 +141,10 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN default_pricing_profile VARCHAR")
         if "default_pricing_override" not in config_columns:
             await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN default_pricing_override TEXT")
+        if "last_sync_at" not in config_columns:
+            await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN last_sync_at DATETIME")
+        if "last_sync_results" not in config_columns:
+            await conn.exec_driver_sql("ALTER TABLE config ADD COLUMN last_sync_results TEXT")
 
         # Manually commit all changes
         await conn.commit()

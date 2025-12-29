@@ -152,12 +152,20 @@ def create_app() -> FastAPI:
             for p in providers_list
         ]
 
+        # Prepare last sync info
+        last_sync_info = None
+        if config.last_sync_at:
+            last_sync_info = {
+                "timestamp": config.last_sync_at,
+                "results": config.last_sync_results_dict
+            }
+
         return templates.TemplateResponse("index.html", {
             "request": request,
             "providers": providers_list,
             "config": config_dict,
             "stats": stats,
-            "last_synced": None
+            "last_sync": last_sync_info
         })
 
     @app.get("/sources", response_class=HTMLResponse)
@@ -373,6 +381,12 @@ def create_app() -> FastAPI:
             results["providers"].append(provider_result)
 
         results["success"] = len(results["errors"]) == 0
+
+        # Save sync results to config
+        config.last_sync_at = datetime.now(timezone.utc)
+        config.last_sync_results_dict = results
+        await session.commit()
+
         return results
 
     @app.post("/admin/providers")

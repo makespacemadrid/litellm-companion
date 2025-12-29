@@ -67,8 +67,26 @@
       {% else %}
       <p class="muted">Automatic sync disabled</p>
       {% endif %}
-      {% if last_synced %}
-      <p class="muted">Last synced at {{ last_synced }}</p>
+      {% if last_sync %}
+      <div class="last-sync-info">
+        <p class="muted" style="margin-bottom: 0.5rem;">
+          Last synced: {{ last_sync.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+        </p>
+        <div class="sync-stats">
+          <span class="sync-stat-badge success">
+            +{{ last_sync.results.total_models_fetched }} models
+          </span>
+          {% if last_sync.results.errors|length > 0 %}
+          <span class="sync-stat-badge error">
+            {{ last_sync.results.errors|length }} errors
+          </span>
+          {% else %}
+          <span class="sync-stat-badge success">
+            ✓ OK
+          </span>
+          {% endif %}
+        </div>
+      </div>
       {% else %}
       <p class="muted">No sync completed yet</p>
       {% endif %}
@@ -224,6 +242,37 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* Sync Info Styles */
+.last-sync-info {
+  margin-top: 0.5rem;
+}
+
+.sync-stats {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sync-stat-badge {
+  display: inline-block;
+  padding: 0.3rem 0.7rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.sync-stat-badge.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #81c784;
+}
+
+.sync-stat-badge.error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef5350;
 }
 
 /* Sync Modal Styles */
