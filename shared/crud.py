@@ -194,9 +194,9 @@ async def update_provider(
     elif provider.type == "ollama" and provider.default_ollama_mode is None:
         provider.default_ollama_mode = "ollama_chat"
     if model_filter is not None:
-        provider.model_filter = model_filter
+        provider.model_filter = model_filter or None
     if model_filter_exclude is not None:
-        provider.model_filter_exclude = model_filter_exclude
+        provider.model_filter_exclude = model_filter_exclude or None
     if max_requests_per_hour is not None:
         provider.max_requests_per_hour = max_requests_per_hour
     if tags is not None:

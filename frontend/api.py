@@ -473,8 +473,8 @@ def create_app() -> FastAPI:
             api_key=api_key,
             prefix=prefix,
             default_ollama_mode=default_ollama_mode,
-            model_filter=model_filter,
-            model_filter_exclude=model_filter_exclude,
+            model_filter=model_filter.strip() if model_filter is not None else None,
+            model_filter_exclude=model_filter_exclude.strip() if model_filter_exclude is not None else None,
             sync_interval_seconds=sync_interval_seconds
         )
         from fastapi.responses import RedirectResponse
