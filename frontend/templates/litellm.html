@@ -7,6 +7,25 @@
   {% else %}
   <p class="muted">Fetched at {{ fetched_at or "Unknown" }}</p>
   {% if litellm_models %}
+  <div id="litellm-message" class="litellm-message"></div>
+  <div class="litellm-stats">
+    <div class="litellm-stat">
+      <span class="litellm-stat-label">Total</span>
+      <span class="litellm-stat-value" id="stat-total">0</span>
+    </div>
+    <div class="litellm-stat">
+      <span class="litellm-stat-label">Visible</span>
+      <span class="litellm-stat-value" id="stat-visible">0</span>
+    </div>
+    <div class="litellm-stat">
+      <span class="litellm-stat-label">Selected</span>
+      <span class="litellm-stat-value" id="stat-selected">0</span>
+    </div>
+    <div class="litellm-stat">
+      <span class="litellm-stat-label">Tags</span>
+      <span class="litellm-stat-value" id="stat-tags">0</span>
+    </div>
+  </div>
   <!-- Tag Filters -->
   <div id="tag-filters" style="margin-bottom: 1rem;">
     <div style="margin-bottom: 0.5rem; font-weight: 600;">Filter by Tags:</div>
@@ -156,6 +175,51 @@
   {% endif %}
   {% endif %}
 </section>
+<style>
+.litellm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.litellm-stat {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+.litellm-stat-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #aaa;
+  margin-bottom: 0.25rem;
+}
+.litellm-stat-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+.litellm-message {
+  display: none;
+  margin: 0.5rem 0 1rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+}
+.litellm-message.success {
+  display: block;
+  background: #102a1a;
+  border-color: #1a4428;
+  color: #6ee7b7;
+}
+.litellm-message.error {
+  display: block;
+  background: #2a1a1a;
+  border-color: #4b1a1a;
+  color: #fca5a5;
+}
+</style>
 <script>
   // Store model data for display
   const modelData = [
@@ -197,6 +261,30 @@
     const checkboxes = document.querySelectorAll('.model-checkbox');
     const modelCards = document.querySelectorAll('.model-card');
     let activeFilters = new Set();
+    const statTotal = document.getElementById('stat-total');
+    const statVisible = document.getElementById('stat-visible');
+    const statSelected = document.getElementById('stat-selected');
+    const statTags = document.getElementById('stat-tags');
+    const messageEl = document.getElementById('litellm-message');
+
+    function showMessage(message, type) {
+      if (!messageEl) return;
+      messageEl.textContent = message;
+      messageEl.classList.remove('success', 'error');
+      if (type) {
+        messageEl.classList.add(type);
+        messageEl.style.display = '';
+      } else {
+        messageEl.style.display = 'none';
+      }
+    }
+
+    function updateStats({ visibleCount, selectedCountValue, tagCount }) {
+      if (statTotal) statTotal.textContent = modelCards.length;
+      if (statVisible) statVisible.textContent = visibleCount;
+      if (statSelected) statSelected.textContent = selectedCountValue;
+      if (statTags) statTags.textContent = tagCount;
+    }
 
     // Extract all unique tags from models
     function extractAllTags() {
@@ -216,6 +304,11 @@
     function renderTagFilters() {
       const allTags = extractAllTags();
       const tagButtons = document.getElementById('tag-buttons');
+      updateStats({
+        visibleCount: modelCards.length,
+        selectedCountValue: 0,
+        tagCount: allTags.length
+      });
 
       if (allTags.length === 0) {
         tagButtons.innerHTML = '<span class="muted">No tags found</span>';
@@ -310,6 +403,11 @@
       }
 
       updateBulkActions();
+      updateStats({
+        visibleCount,
+        selectedCountValue: document.querySelectorAll('.model-checkbox:checked').length,
+        tagCount: extractAllTags().length
+      });
     }
 
     // Initialize tag filters
@@ -338,6 +436,12 @@
           selectAllCheckbox.indeterminate = true;
         }
       }
+
+      updateStats({
+        visibleCount: document.querySelectorAll('.model-card:not([style*="display: none"])').length,
+        selectedCountValue: checked.length,
+        tagCount: extractAllTags().length
+      });
     }
 
     // Select all checkbox
@@ -374,6 +478,11 @@
         cb.closest('.model-card').classList.remove('model-card--selected');
       });
       updateBulkActions();
+      updateStats({
+        visibleCount: document.querySelectorAll('.model-card:not([style*="display: none"])').length,
+        selectedCountValue: 0,
+        tagCount: extractAllTags().length
+      });
     });
 
     // Bulk delete
@@ -401,15 +510,15 @@
         });
 
         if (response.ok) {
-          alert(`${modelIds.length} modelos eliminados exitosamente`);
+          showMessage(`${modelIds.length} modelos eliminados exitosamente`, 'success');
           location.reload();
         } else {
           const error = await response.json();
-          alert(`Error al eliminar modelos: ${error.detail || response.statusText}`);
+          showMessage(`Error al eliminar modelos: ${error.detail || response.statusText}`, 'error');
         }
       } catch (error) {
         console.error('Failed to delete models:', error);
-        alert(`Error de red al eliminar modelos: ${error.message}`);
+        showMessage(`Error de red al eliminar modelos: ${error.message}`, 'error');
       }
     });
 
@@ -435,15 +544,15 @@
           });
 
           if (response.ok) {
-            alert(`Modelo ${modelId} eliminado exitosamente`);
+            showMessage(`Modelo ${modelId} eliminado exitosamente`, 'success');
             location.reload();
           } else {
             const error = await response.json();
-            alert(`Error al eliminar modelo: ${error.detail || response.statusText}`);
+            showMessage(`Error al eliminar modelo: ${error.detail || response.statusText}`, 'error');
           }
         } catch (error) {
           console.error('Failed to delete model:', error);
-          alert(`Error de red al eliminar modelo: ${error.message}`);
+          showMessage(`Error de red al eliminar modelo: ${error.message}`, 'error');
         } finally {
           button.disabled = false;
           button.textContent = 'Delete';

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="panel">
+  <h2>LiteLLM Destination</h2>
+  <form onsubmit="saveDestination(event)">
+    <label>Base URL <input type="text" name="litellm_base_url" value="{{ config.litellm.base_url or '' }}" /></label>
+    <label>API Key <input type="text" name="litellm_api_key" value="{{ config.litellm.api_key or '' }}" /></label>
+    <label>
+      Default Pricing Profile
+      <select name="default_pricing_profile">
+        <option value="" {% if not config.default_pricing_profile %}selected{% endif %}>None</option>
+        <option value="gpt-4o" {% if config.default_pricing_profile == 'gpt-4o' %}selected{% endif %}>OpenAI - gpt-4o</option>
+        <option value="gpt-4o-mini" {% if config.default_pricing_profile == 'gpt-4o-mini' %}selected{% endif %}>OpenAI - gpt-4o-mini</option>
+        <option value="gpt-4.1" {% if config.default_pricing_profile == 'gpt-4.1' %}selected{% endif %}>OpenAI - gpt-4.1</option>
+        <option value="o1-mini" {% if config.default_pricing_profile == 'o1-mini' %}selected{% endif %}>OpenAI - o1-mini</option>
+      </select>
+    </label>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+      <label>Input $/token
+        <input type="number" step="0.000000001" name="default_input_cost_per_token" value="{{ (config.default_pricing_override or {}).get('input_cost_per_token', '') }}" />
+      </label>
+      <label>Output $/token
+        <input type="number" step="0.000000001" name="default_output_cost_per_token" value="{{ (config.default_pricing_override or {}).get('output_cost_per_token', '') }}" />
+      </label>
+    </div>
+    <p class="muted">Leave Base URL empty to disable LiteLLM synchronization.</p>
+    <button type="submit">Save destination</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Sync Interval</h2>
+  <form onsubmit="saveInterval(event)">
+    <label>Seconds <input type="number" name="sync_interval_seconds" value="{{ config.sync_interval_seconds }}" min="0" /></label>
+    <p class="muted">Set to 0 to disable automatic synchronization. Minimum when enabled: 30 seconds. Note: Individual providers can override this with their own sync intervals.</p>
+    <button type="submit">Update interval</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Quick Links</h2>
+  <p>Manage your LiteLLM Companion configuration:</p>
+  <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+    <a href="/providers" class="btn-primary" style="text-decoration: none; display: inline-block;">Manage Providers</a>
+    <a href="/models" class="btn-secondary" style="text-decoration: none; display: inline-block;">Browse Models</a>
+    <a href="/compat" class="btn-secondary" style="text-decoration: none; display: inline-block;">Compat Models</a>
+  </div>
+</section>
+
+<script>
+async function saveDestination(event) {
+  event.preventDefault();
+  const formData = new FormData(event.target);
+  try {
+    const response = await fetch('/api/admin/config', { method: 'POST', body: formData });
+    const result = await response.json();
+    if (response.ok) {
+      alert('Destination saved');
+    } else {
+      alert('Error: ' + (result.detail || 'Failed to save destination'));
+    }
+  } catch (error) {
+    alert('Error: ' + error.message);
+  }
+}
+
+async function saveInterval(event) {
+  event.preventDefault();
+  const formData = new FormData(event.target);
+  try {
+    const response = await fetch('/api/admin/config', { method: 'POST', body: formData });
+    const result = await response.json();
+    if (response.ok) {
+      alert('Sync interval updated');
+    } else {
+      alert('Error: ' + (result.detail || 'Failed to update interval'));
+    }
+  } catch (error) {
+    alert('Error: ' + error.message);
+  }
+}
+</script>
+
+{% endblock %}

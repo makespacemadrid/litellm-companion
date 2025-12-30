@@ -30,6 +30,7 @@ class Provider(Base):
     pricing_profile: Mapped[str | None] = mapped_column(String, nullable=True)
     pricing_override: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
     sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sync_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Override global sync interval (0 = use global)
     auto_detect_fim: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     model_filter: Mapped[str | None] = mapped_column(String, nullable=True)  # Regex or substring filter for model names
     created_at: Mapped[datetime] = mapped_column(

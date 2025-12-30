@@ -43,6 +43,7 @@ class SyncWorker:
         self.running = True
         self.engine = None
         self.session_maker = None
+        self.last_sync_times: dict[int, datetime] = {}  # provider_id -> last sync time
 
     async def initialize(self):
         """Initialize database connection."""
@@ -70,15 +71,29 @@ class SyncWorker:
 
         logger.info("✅ Sync worker ready")
 
+        # Check interval: check every 30 seconds which providers need syncing
+        CHECK_INTERVAL = 30
+
         while self.running:
             try:
-                # Grab config and provider IDs in a short-lived session
+                # Grab config and providers in a short-lived session
                 async with self.session_maker() as session:
                     config_obj = await get_config(session)
-                    provider_ids = [p.id for p in await get_all_providers(session)]
+                    all_providers = await get_all_providers(session)
+
+                    # Create provider snapshots with intervals
+                    providers_info = []
+                    for p in all_providers:
+                        # Use provider-specific interval, or global if not set
+                        interval = p.sync_interval_seconds if p.sync_interval_seconds else config_obj.sync_interval_seconds
+                        providers_info.append({
+                            "id": p.id,
+                            "name": p.name,
+                            "sync_enabled": p.sync_enabled,
+                            "sync_interval_seconds": interval,
+                        })
 
                 # Snapshot config values to avoid session-bound objects
-                sync_interval = config_obj.sync_interval_seconds
                 config_snapshot = {
                     "litellm_base_url": config_obj.litellm_base_url,
                     "litellm_api_key": config_obj.litellm_api_key,
@@ -86,21 +101,31 @@ class SyncWorker:
                     "default_pricing_override": config_obj.default_pricing_override_dict,
                 }
 
-                # Check if sync is enabled
-                if sync_interval == 0:
-                    logger.debug("Sync disabled (interval=0), sleeping for 60s...")
-                    await asyncio.sleep(60)
-                    continue
+                # Check which providers need syncing
+                now = datetime.now(UTC)
+                providers_to_sync = []
+                for provider_info in providers_info:
+                    if not provider_info["sync_enabled"]:
+                        continue
 
-                logger.info("⏰ Starting sync cycle (interval: %ds)", sync_interval)
+                    interval = provider_info["sync_interval_seconds"]
+                    if interval == 0:
+                        continue  # Sync disabled for this provider
 
-                # Sync all enabled providers
-                await self.sync_all_providers(provider_ids, config_snapshot)
+                    provider_id = provider_info["id"]
+                    last_sync = self.last_sync_times.get(provider_id)
 
-                logger.info("✓ Sync cycle complete, waiting %ds for next cycle", sync_interval)
+                    # Sync if never synced or interval has passed
+                    if last_sync is None or (now - last_sync).total_seconds() >= interval:
+                        providers_to_sync.append(provider_id)
 
-                # Wait for next interval
-                await asyncio.sleep(sync_interval)
+                # Sync providers that are due
+                if providers_to_sync:
+                    logger.info("⏰ Syncing %d provider(s)...", len(providers_to_sync))
+                    await self.sync_providers(providers_to_sync, config_snapshot)
+
+                # Wait before next check
+                await asyncio.sleep(CHECK_INTERVAL)
 
             except Exception as e:
                 logger.exception("❌ Error in sync loop: %s", e)
@@ -112,8 +137,8 @@ class SyncWorker:
         if self.engine:
             await self.engine.dispose()
 
-    async def sync_all_providers(self, provider_ids: list[int], config_snapshot: dict[str, str | None]):
-        """Sync models from all enabled providers."""
+    async def sync_providers(self, provider_ids: list[int], config_snapshot: dict[str, str | None]):
+        """Sync models from specified providers and update their last sync times."""
         if not provider_ids:
             logger.info("No providers configured")
             return
@@ -158,6 +183,8 @@ class SyncWorker:
                                 stats.get("updated", 0) if stats else 0,
                                 stats.get("deleted", 0) if stats else 0
                             )
+                            # Mark successful sync time
+                            self.last_sync_times[provider_id] = datetime.now(UTC)
                         else:
                             logger.debug("LiteLLM not configured, skipping push for %s", provider.name)
                         continue
@@ -176,6 +203,9 @@ class SyncWorker:
                         stats.get("updated", 0),
                         stats.get("orphaned", 0)
                     )
+
+                    # Mark successful sync time
+                    self.last_sync_times[provider_id] = datetime.now(UTC)
 
                 except Exception as e:
                     logger.error("❌ Failed to sync provider %s: %s", provider.name, e, exc_info=True)

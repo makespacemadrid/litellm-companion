@@ -1,0 +1,755 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    .presets-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    .preset-card {
+        background: #242424;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 15px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .preset-card:hover {
+        border-color: #4a9eff;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(74, 158, 255, 0.1);
+    }
+    .preset-card h3 {
+        font-size: 18px;
+        color: #fff;
+        margin-bottom: 8px;
+    }
+    .preset-card .description {
+        font-size: 14px;
+        color: #aaa;
+        margin-bottom: 10px;
+    }
+    .preset-card .meta {
+        display: flex;
+        gap: 15px;
+        font-size: 12px;
+        color: #888;
+    }
+    .preset-card .meta span {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .providers-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+    .providers-table th {
+        background: #242424;
+        color: #fff;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #333;
+    }
+    .providers-table td {
+        padding: 12px;
+        border-bottom: 1px solid #2a2a2a;
+    }
+    .providers-table tr:hover {
+        background: #242424;
+    }
+    .badge.ollama { background: #ff6b35; color: #fff; }
+    .badge.openai { background: #10a37f; color: #fff; }
+    .badge.compat { background: #6b7280; color: #fff; }
+    .badge.enabled { background: #10b981; color: #fff; }
+    .badge.disabled { background: #6b7280; color: #fff; }
+    .btn-small {
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 1000;
+        overflow-y: auto;
+    }
+    .modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal-content {
+        background: #1a1a1a;
+        border-radius: 12px;
+        padding: 30px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+        border: 1px solid #2a2a2a;
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .modal-header h2 {
+        margin: 0;
+    }
+    .close {
+        font-size: 28px;
+        color: #888;
+        cursor: pointer;
+        border: none;
+        background: none;
+        padding: 0;
+        line-height: 1;
+    }
+    .close:hover {
+        color: #fff;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 6px;
+        color: #ccc;
+        font-weight: 500;
+    }
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 10px;
+        background: #242424;
+        border: 1px solid #333;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: #4a9eff;
+    }
+    .form-group .help-text {
+        font-size: 12px;
+        color: #888;
+        margin-top: 4px;
+    }
+    .form-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 25px;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #888;
+    }
+    .interval-display {
+        color: #888;
+        font-size: 13px;
+    }
+    .actions {
+        display: flex;
+        gap: 8px;
+    }
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+    }
+    .action-message {
+        display: none;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        font-size: 13px;
+    }
+    .action-message.success {
+        display: block;
+        background: #102a1a;
+        border-color: #1a4428;
+        color: #6ee7b7;
+    }
+    .action-message.error {
+        display: block;
+        background: #2a1a1a;
+        border-color: #4b1a1a;
+        color: #fca5a5;
+    }
+</style>
+
+<h1 style="font-size: 32px; margin-bottom: 30px; color: #fff;">Provider Management</h1>
+
+<!-- Free Tier Presets Section -->
+<section class="panel">
+    <h2>🎁 Free Tier Providers</h2>
+    <p class="muted">Quick setup for popular free API providers. Click to add.</p>
+    <div class="presets-grid" id="presetsGrid">
+        <!-- Presets loaded via JS -->
+    </div>
+</section>
+
+<!-- Existing Providers Section -->
+<section class="panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2 style="margin: 0;">Your Providers</h2>
+        <button class="btn-primary" onclick="showAddCustomModal()">➕ Add Custom Provider</button>
+    </div>
+    <div id="providers-message" class="action-message"></div>
+    <table class="providers-table" id="providersTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Base URL</th>
+                <th>Model Filter</th>
+                <th>Sync</th>
+                <th>Interval</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="providersTableBody">
+            <!-- Providers loaded via JS -->
+        </tbody>
+    </table>
+</section>
+
+<!-- Add Provider Modal (from preset) -->
+<div id="addPresetModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add Provider</h2>
+            <button class="close" onclick="closeModal('addPresetModal')">&times;</button>
+        </div>
+        <div id="preset_api_key_banner" style="display: none; background: #1e3a5f; border: 1px solid #4a9eff; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <span style="font-size: 20px;">🔑</span>
+                <strong style="color: #4a9eff;">API Key Required</strong>
+            </div>
+            <div style="font-size: 13px; color: #aaa;">
+                Get your API key from: <a id="preset_api_key_banner_url" href="#" target="_blank" style="color: #4a9eff; text-decoration: underline;"></a>
+            </div>
+        </div>
+        <form id="addPresetForm" onsubmit="addProviderFromPreset(event)">
+            <input type="hidden" id="preset_name" name="preset_name">
+
+            <div class="form-group">
+                <label>Provider Name *</label>
+                <input type="text" id="preset_provider_name" name="name" required>
+                <div class="help-text">Display name for this provider</div>
+            </div>
+
+            <div class="form-group">
+                <label>Base URL *</label>
+                <input type="text" id="preset_base_url" name="base_url" required readonly>
+            </div>
+
+            <div class="form-group">
+                <label>Type *</label>
+                <input type="text" id="preset_type" name="type" required readonly>
+            </div>
+
+            <div class="form-group">
+                <label>API Key <span id="preset_required_label" style="color: #ef4444;"></span></label>
+                <input type="password" id="preset_api_key" name="api_key">
+            </div>
+
+            <div class="form-group">
+                <label>Model Filter (optional)</label>
+                <input type="text" id="preset_model_filter" name="model_filter">
+                <div class="help-text">Only sync models containing this text (e.g., ":free")</div>
+            </div>
+
+            <div class="form-group">
+                <label>Prefix (optional)</label>
+                <input type="text" id="preset_prefix" name="prefix">
+                <div class="help-text">Prefix for model names (e.g., "groq-")</div>
+            </div>
+
+            <div class="form-group">
+                <label>Sync Interval (seconds)</label>
+                <input type="number" id="preset_sync_interval" name="sync_interval_seconds" min="0">
+                <div class="help-text">How often to sync (0 = use global default, recommended: <span id="preset_recommended_interval"></span>s)</div>
+            </div>
+
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="preset_sync_enabled" name="sync_enabled" checked>
+                <label for="preset_sync_enabled" style="margin-bottom: 0;">Enable automatic sync</label>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('addPresetModal')">Cancel</button>
+                <button type="submit" class="btn-primary">Add Provider</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Provider Modal -->
+<div id="editProviderModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Edit Provider</h2>
+            <button class="close" onclick="closeModal('editProviderModal')">&times;</button>
+        </div>
+        <form id="editProviderForm" onsubmit="updateProvider(event)">
+            <input type="hidden" id="edit_provider_id" name="provider_id">
+
+            <div class="form-group">
+                <label>Provider Name *</label>
+                <input type="text" id="edit_name" name="name" required>
+            </div>
+
+            <div class="form-group">
+                <label>Base URL *</label>
+                <input type="text" id="edit_base_url" name="base_url" required>
+            </div>
+
+            <div class="form-group">
+                <label>Type *</label>
+                <select id="edit_type" name="type" required>
+                    <option value="ollama">Ollama</option>
+                    <option value="openai">OpenAI-compatible</option>
+                    <option value="compat">Compat (alias)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" id="edit_api_key" name="api_key" placeholder="Leave empty to keep current">
+            </div>
+
+            <div class="form-group">
+                <label>Model Filter</label>
+                <input type="text" id="edit_model_filter" name="model_filter">
+                <div class="help-text">Only sync models containing this text</div>
+            </div>
+
+            <div class="form-group">
+                <label>Prefix</label>
+                <input type="text" id="edit_prefix" name="prefix">
+            </div>
+
+            <div class="form-group">
+                <label>Default Ollama Mode</label>
+                <select id="edit_ollama_mode" name="default_ollama_mode">
+                    <option value="">None</option>
+                    <option value="ollama">ollama</option>
+                    <option value="ollama_chat">ollama_chat</option>
+                    <option value="openai">openai</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Sync Interval (seconds)</label>
+                <input type="number" id="edit_sync_interval" name="sync_interval_seconds" min="0">
+                <div class="help-text">0 = use global default</div>
+            </div>
+
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="edit_sync_enabled" name="sync_enabled">
+                <label for="edit_sync_enabled" style="margin-bottom: 0;">Enable automatic sync</label>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('editProviderModal')">Cancel</button>
+                <button type="submit" class="btn-primary">Update Provider</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Custom Provider Modal -->
+<div id="addCustomModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Add Custom Provider</h2>
+            <button class="close" onclick="closeModal('addCustomModal')">&times;</button>
+        </div>
+        <form id="addCustomForm" onsubmit="addCustomProvider(event)">
+            <div class="form-group">
+                <label>Provider Name *</label>
+                <input type="text" name="name" required>
+            </div>
+
+            <div class="form-group">
+                <label>Base URL *</label>
+                <input type="text" name="base_url" required placeholder="http://localhost:11434">
+            </div>
+
+            <div class="form-group">
+                <label>Type *</label>
+                <select name="type" required>
+                    <option value="ollama">Ollama</option>
+                    <option value="openai">OpenAI-compatible</option>
+                    <option value="compat">Compat (alias)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" name="api_key">
+            </div>
+
+            <div class="form-group">
+                <label>Model Filter</label>
+                <input type="text" name="model_filter">
+                <div class="help-text">Only sync models containing this text</div>
+            </div>
+
+            <div class="form-group">
+                <label>Prefix</label>
+                <input type="text" name="prefix">
+            </div>
+
+            <div class="form-group">
+                <label>Sync Interval (seconds)</label>
+                <input type="number" name="sync_interval_seconds" min="0" value="0">
+                <div class="help-text">0 = use global default</div>
+            </div>
+
+            <div class="form-group checkbox-group">
+                <input type="checkbox" name="sync_enabled" checked>
+                <label style="margin-bottom: 0;">Enable automatic sync</label>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal('addCustomModal')">Cancel</button>
+                <button type="submit" class="btn-primary">Add Provider</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    let presets = [];
+    let providers = [];
+
+    // Load presets and providers on page load
+    async function init() {
+        await loadPresets();
+        await loadProviders();
+    }
+
+    async function loadPresets() {
+        try {
+            const response = await fetch('/api/provider-presets');
+            presets = await response.json();
+            renderPresets();
+        } catch (error) {
+            console.error('Failed to load presets:', error);
+        }
+    }
+
+    async function loadProviders() {
+        try {
+            const response = await fetch('/api/providers');
+            providers = await response.json();
+            renderProviders();
+        } catch (error) {
+            console.error('Failed to load providers:', error);
+        }
+    }
+
+    function renderPresets() {
+        const grid = document.getElementById('presetsGrid');
+        if (presets.length === 0) {
+            grid.innerHTML = '<div class="empty-state">No presets available</div>';
+            return;
+        }
+
+        grid.innerHTML = presets.map(preset => `
+            <div class="preset-card" onclick="showPresetModal('${preset.name}')">
+                <h3>${preset.name}</h3>
+                <div class="description">${preset.description}</div>
+                <div class="meta">
+                    <span>📊 ${preset.limits}</span>
+                    ${preset.api_key_required ? '<span>🔑 API Key</span>' : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderProviders() {
+        const tbody = document.getElementById('providersTableBody');
+        if (providers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No providers configured. Add one from the free tier presets above!</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = providers.map(provider => {
+            const intervalDisplay = provider.sync_interval_seconds
+                ? `${provider.sync_interval_seconds}s`
+                : '<span style="color: #888;">global</span>';
+
+            return `
+                <tr>
+                    <td><strong>${provider.name}</strong></td>
+                    <td><span class="badge ${provider.type}">${provider.type}</span></td>
+                    <td style="font-size: 12px; color: #888;">${provider.base_url}</td>
+                    <td>${provider.model_filter || '<span style="color: #666;">none</span>'}</td>
+                    <td><span class="badge ${provider.sync_enabled ? 'enabled' : 'disabled'}">${provider.sync_enabled ? 'enabled' : 'disabled'}</span></td>
+                    <td class="interval-display">${intervalDisplay}</td>
+                    <td class="actions">
+                        ${provider.type !== 'compat' ? `<button class="btn-primary btn-small" onclick="pullProvider(${provider.id})">Pull</button>` : ''}
+                        <button class="btn-success btn-small" onclick="pushProvider(${provider.id})">Push</button>
+                        ${provider.type !== 'compat' ? `<button class="btn-secondary btn-small" onclick="testProvider(${provider.id})">Test</button>` : ''}
+                        <button class="btn-secondary btn-small" onclick="editProvider(${provider.id})">Edit</button>
+                        <button class="btn-danger btn-small" onclick="deleteProvider(${provider.id}, '${provider.name}')">Delete</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function showProviderMessage(message, type) {
+        const el = document.getElementById('providers-message');
+        el.textContent = message;
+        el.classList.remove('success', 'error');
+        if (type) {
+            el.style.display = '';
+            el.classList.add(type);
+        } else {
+            el.style.display = 'none';
+        }
+    }
+
+    function showPresetModal(presetName) {
+        const preset = presets.find(p => p.name === presetName);
+        if (!preset) return;
+
+        document.getElementById('preset_name').value = preset.name;
+        document.getElementById('preset_provider_name').value = preset.name;
+        document.getElementById('preset_base_url').value = preset.base_url || '';
+        document.getElementById('preset_type').value = preset.type || '';
+        document.getElementById('preset_model_filter').value = preset.model_filter || '';
+        document.getElementById('preset_sync_interval').value = preset.sync_interval_seconds || 0;
+        document.getElementById('preset_recommended_interval').textContent = preset.sync_interval_seconds || 0;
+
+        // Show/hide API key banner and update fields
+        const banner = document.getElementById('preset_api_key_banner');
+        const bannerUrl = document.getElementById('preset_api_key_banner_url');
+
+        if (preset.api_key_required && preset.api_key_url) {
+            banner.style.display = 'block';
+            bannerUrl.href = preset.api_key_url;
+            bannerUrl.textContent = preset.api_key_url;
+            document.getElementById('preset_required_label').textContent = '*';
+            document.getElementById('preset_api_key').required = true;
+        } else {
+            banner.style.display = 'none';
+            document.getElementById('preset_required_label').textContent = '';
+            document.getElementById('preset_api_key').required = false;
+        }
+
+        openModal('addPresetModal');
+    }
+
+    function showAddCustomModal() {
+        openModal('addCustomModal');
+    }
+
+    async function addProviderFromPreset(event) {
+        event.preventDefault();
+        const formData = new FormData(event.target);
+
+        try {
+            const response = await fetch('/api/providers', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                closeModal('addPresetModal');
+                event.target.reset();
+                await loadProviders();
+            } else {
+                const error = await response.text();
+                alert('Failed to add provider: ' + error);
+            }
+        } catch (error) {
+            alert('Failed to add provider: ' + error.message);
+        }
+    }
+
+    async function addCustomProvider(event) {
+        event.preventDefault();
+        const formData = new FormData(event.target);
+
+        try {
+            const response = await fetch('/api/providers', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                closeModal('addCustomModal');
+                event.target.reset();
+                await loadProviders();
+            } else {
+                const error = await response.text();
+                alert('Failed to add provider: ' + error);
+            }
+        } catch (error) {
+            alert('Failed to add provider: ' + error.message);
+        }
+    }
+
+    async function editProvider(providerId) {
+        const provider = providers.find(p => p.id === providerId);
+        if (!provider) return;
+
+        document.getElementById('edit_provider_id').value = provider.id;
+        document.getElementById('edit_name').value = provider.name;
+        document.getElementById('edit_base_url').value = provider.base_url;
+        document.getElementById('edit_type').value = provider.type;
+        document.getElementById('edit_model_filter').value = provider.model_filter || '';
+        document.getElementById('edit_prefix').value = provider.prefix || '';
+        document.getElementById('edit_ollama_mode').value = provider.default_ollama_mode || '';
+        document.getElementById('edit_sync_interval').value = provider.sync_interval_seconds || 0;
+        document.getElementById('edit_sync_enabled').checked = provider.sync_enabled;
+
+        openModal('editProviderModal');
+    }
+
+    async function updateProvider(event) {
+        event.preventDefault();
+        const formData = new FormData(event.target);
+        const providerId = formData.get('provider_id');
+
+        try {
+            const response = await fetch(`/api/providers/${providerId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                closeModal('editProviderModal');
+                await loadProviders();
+            } else {
+                const error = await response.text();
+                alert('Failed to update provider: ' + error);
+            }
+        } catch (error) {
+            alert('Failed to update provider: ' + error.message);
+        }
+    }
+
+    async function deleteProvider(providerId, providerName) {
+        if (!confirm(`Are you sure you want to delete provider "${providerName}"? This will also delete all its models.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/providers/${providerId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                await loadProviders();
+            } else {
+                const error = await response.text();
+                alert('Failed to delete provider: ' + error);
+            }
+        } catch (error) {
+            alert('Failed to delete provider: ' + error.message);
+        }
+    }
+
+    async function pullProvider(providerId) {
+        try {
+            const response = await fetch(`/api/providers/${providerId}/fetch-now`, { method: 'POST' });
+            if (response.ok) {
+                await loadProviders();
+                showProviderMessage('Pull completed.', 'success');
+            } else {
+                const error = await response.text();
+                showProviderMessage('Pull failed: ' + error, 'error');
+            }
+        } catch (error) {
+            showProviderMessage('Pull failed: ' + error.message, 'error');
+        }
+    }
+
+    async function pushProvider(providerId) {
+        try {
+            const response = await fetch(`/api/providers/${providerId}/push`, { method: 'POST' });
+            if (response.ok) {
+                showProviderMessage('Push completed.', 'success');
+            } else {
+                const error = await response.text();
+                showProviderMessage('Push failed: ' + error, 'error');
+            }
+        } catch (error) {
+            showProviderMessage('Push failed: ' + error.message, 'error');
+        }
+    }
+
+    async function testProvider(providerId) {
+        const provider = providers.find(p => p.id === providerId);
+        if (!provider) return;
+
+        try {
+            const formData = new FormData();
+            formData.append('base_url', provider.base_url);
+            formData.append('type', provider.type);
+            if (provider.api_key) {
+                formData.append('api_key', provider.api_key);
+            }
+
+            const response = await fetch('/api/providers/test-connection', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (response.ok && result.success) {
+                showProviderMessage(result.message || 'Connection ok.', 'success');
+            } else {
+                showProviderMessage(result.message || 'Connection failed.', 'error');
+            }
+        } catch (error) {
+            showProviderMessage('Connection test failed: ' + error.message, 'error');
+        }
+    }
+
+    function openModal(modalId) {
+        document.getElementById(modalId).classList.add('active');
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    // Close modal on background click
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+            }
+        });
+    });
+
+    // Initialize on page load
+    init();
+</script>
+
+{% endblock %}

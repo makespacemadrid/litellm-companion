@@ -1,5 +1,6 @@
 """Provider management API routes."""
 from fastapi import APIRouter, Depends, HTTPException, Form, Body
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import get_session
@@ -13,6 +14,8 @@ from shared.crud import (
     get_config,
 )
 from shared.categorization import get_category_stats
+from shared.models import SourceEndpoint, SourceType
+from shared.sources import fetch_source_models
 from backend.provider_sync import sync_provider
 
 router = APIRouter()
@@ -74,9 +77,11 @@ async def list_providers(session: AsyncSession = Depends(get_session)):
             "prefix": p.prefix,
             "default_ollama_mode": p.default_ollama_mode,
             "auto_detect_fim": p.auto_detect_fim,
+            "model_filter": p.model_filter,
             "tags": p.tags_list,
             "access_groups": p.access_groups_list,
             "sync_enabled": p.sync_enabled,
+            "sync_interval_seconds": p.sync_interval_seconds,
             "pricing_profile": p.pricing_profile,
             "pricing_override": p.pricing_override_dict,
             "created_at": p.created_at.isoformat(),
@@ -118,6 +123,70 @@ async def get_all_stats(session: AsyncSession = Depends(get_session)):
         "total_models": len(models),
         "categories": stats
     }
+
+
+@router.post("/test-connection")
+async def test_provider_connection(
+    base_url: str = Form(...),
+    type: str = Form(...),
+    api_key: str | None = Form(None),
+):
+    """
+    Test connection to a provider without saving it.
+    Returns connection status and any error messages.
+    """
+    try:
+        source = SourceEndpoint(
+            name="test",
+            base_url=base_url,
+            type=SourceType(type),
+            api_key=api_key,
+        )
+
+        source_models = await fetch_source_models(source)
+
+        return {
+            "success": True,
+            "message": f"Successfully connected! Found {len(source_models.models)} models.",
+            "model_count": len(source_models.models)
+        }
+
+    except httpx.HTTPStatusError as e:
+        return {
+            "success": False,
+            "message": f"HTTP {e.response.status_code}: {e.response.text}",
+            "error_type": "http_error"
+        }
+    except httpx.RequestError as e:
+        return {
+            "success": False,
+            "message": f"Request failed: {str(e)}",
+            "error_type": "request_error"
+        }
+    except ConnectionError as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "error_type": "connection_error"
+        }
+    except TimeoutError as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "error_type": "timeout_error"
+        }
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "error_type": "validation_error"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Unexpected error: {str(e)}",
+            "error_type": "unknown_error"
+        }
 
 
 @router.get("/{provider_id}/models")
@@ -212,9 +281,11 @@ async def get_provider(provider_id: int, session: AsyncSession = Depends(get_ses
         "prefix": provider.prefix,
         "default_ollama_mode": provider.default_ollama_mode,
         "auto_detect_fim": provider.auto_detect_fim,
+        "model_filter": provider.model_filter,
         "tags": provider.tags_list,
         "access_groups": provider.access_groups_list,
         "sync_enabled": provider.sync_enabled,
+        "sync_interval_seconds": provider.sync_interval_seconds,
         "pricing_profile": provider.pricing_profile,
         "pricing_override": provider.pricing_override_dict,
     }
@@ -229,9 +300,11 @@ async def add_provider(
     api_key: str | None = Form(None),
     prefix: str | None = Form(None),
     default_ollama_mode: str | None = Form(None),
+    model_filter: str | None = Form(None),
     tags: str | None = Form(None),
     access_groups: str | None = Form(None),
     sync_enabled: bool | None = Form(True),
+    sync_interval_seconds: int | None = Form(None),
     auto_detect_fim: bool | None = Form(True),
     pricing_profile: str | None = Form(None),
     pricing_input_cost_per_token: str | None = Form(None),
@@ -253,9 +326,11 @@ async def add_provider(
         api_key=_normalize_optional_str(api_key),
         prefix=_normalize_optional_str(prefix),
         default_ollama_mode=_normalize_optional_str(default_ollama_mode),
+        model_filter=_normalize_optional_str(model_filter),
         tags=_parse_csv_list(tags),
         access_groups=_parse_csv_list(access_groups),
         sync_enabled=sync_enabled_val,
+        sync_interval_seconds=sync_interval_seconds,
         auto_detect_fim=auto_detect_fim_val,
         pricing_profile=_normalize_optional_str(pricing_profile),
         pricing_override=_parse_pricing_override(
@@ -321,6 +396,7 @@ async def update_provider_endpoint(
     tags: str | None = Form(None),
     access_groups: str | None = Form(None),
     sync_enabled: bool | None = Form(None),
+    sync_interval_seconds: int | None = Form(None),
     auto_detect_fim: bool | None = Form(None),
     pricing_profile: str | None = Form(None),
     pricing_input_cost_per_token: str | None = Form(None),
@@ -345,6 +421,7 @@ async def update_provider_endpoint(
         tags=_parse_csv_list(tags),
         access_groups=_parse_csv_list(access_groups),
         sync_enabled=_parse_bool(sync_enabled),
+        sync_interval_seconds=sync_interval_seconds,
         auto_detect_fim=_parse_bool(auto_detect_fim),
         pricing_profile=_normalize_optional_str(pricing_profile),
         pricing_override=_parse_pricing_override(

@@ -127,6 +127,18 @@
     <div class="provider-card">
       <div class="provider-name">{{ source.name }}</div>
       <div class="muted">{{ human_source_type(source.type) }} @ {{ source.base_url }}</div>
+      <div class="provider-stats-mini">
+        <span class="badge">Models: {{ source.stats.total }}</span>
+        <span class="badge muted">Orphaned: {{ source.stats.orphaned }}</span>
+        <span class="badge muted">Modified: {{ source.stats.modified }}</span>
+      </div>
+      {% if source.last_sync_status %}
+        {% if source.last_sync_status == 'error' %}
+          <div class="badge error" title="{{ source.last_sync_error }}">Last sync: Error</div>
+        {% else %}
+          <div class="badge success">Last sync: OK</div>
+        {% endif %}
+      {% endif %}
       {% if source.prefix %}<div class="badge">Prefix: {{ source.prefix }}</div>{% endif %}
       {% if source.tags and source.tags|length %}
         <div class="tag-row">
@@ -150,17 +162,17 @@
 .stat-card {
   padding: 1rem;
   border-radius: 8px;
-  background: #f5f7fb;
-  border: 1px solid #e4e7ef;
+  background: #242424;
+  border: 1px solid #333;
 }
-.stat-card .stat-label { font-size: 0.9rem; color: #6b7280; }
-.stat-card .stat-value { font-size: 2rem; font-weight: 700; }
-.stat-card.warning { background: #fff4f2; border-color: #ffccc2; }
-.stat-card.info { background: #f0f7ff; border-color: #cfe3ff; }
-.stat-card.success { background: #f0fdf4; border-color: #bbf7d0; }
+.stat-card .stat-label { font-size: 0.9rem; color: #aaa; }
+.stat-card .stat-value { font-size: 2rem; font-weight: 700; color: #fff; }
+.stat-card.warning { background: #2a1a1a; border-color: #ff6b6b; }
+.stat-card.info { background: #1a2432; border-color: #4a9eff; }
+.stat-card.success { background: #102a1a; border-color: #10b981; }
 .categories-panel {
-  background: #fafafa;
-  border: 1px solid #e0e0e0;
+  background: #242424;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 1.5rem;
 }
@@ -174,16 +186,17 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem;
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: #1a1a1a;
+  border: 1px solid #333;
   border-radius: 8px;
   transition: all 0.2s;
   cursor: pointer;
 }
 .category-badge:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-  border-color: #1976d2;
+  box-shadow: 0 4px 12px rgba(74, 158, 255, 0.2);
+  border-color: #4a9eff;
+  background: #2a2a2a;
 }
 .category-icon {
   font-size: 1.5rem;
@@ -192,12 +205,12 @@
   flex: 1;
   font-size: 0.9rem;
   font-weight: 500;
-  color: #4b5563;
+  color: #aaa;
 }
 .category-count {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1976d2;
+  color: #4a9eff;
 }
 .status-grid {
   display: grid;
@@ -211,37 +224,56 @@
   gap: 1rem;
 }
 .provider-card {
-  border: 1px solid #e0e0e0;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 0.75rem;
-  background: #fafafa;
+  background: #242424;
 }
-.provider-name { font-weight: 700; margin-bottom: 0.25rem; }
+.provider-name { font-weight: 700; margin-bottom: 0.25rem; color: #fff; }
+.provider-stats-mini {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
 .badge {
   display: inline-block;
   padding: 0.2rem 0.5rem;
-  background: #e0e7ff;
+  background: #2a2a44;
   border-radius: 12px;
   font-size: 0.8rem;
   margin-right: 0.25rem;
+  color: #a5b4fc;
 }
-.badge.muted { background: #ededed; }
+.badge.muted { background: #2a2a2a; color: #888; }
+.badge.success { background: #102a1a; color: #6ee7b7; }
+.badge.error { background: #2a1a1a; color: #fca5a5; }
 .tag-row { margin-top: 0.35rem; }
 .btn-primary {
-  background: #1976d2;
+  background: #4a9eff;
   color: white;
   padding: 0.6rem 1.2rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary:hover {
+  background: #3a8eef;
+  transform: translateY(-1px);
 }
 .btn-secondary {
-  background: #616161;
+  background: #3a3a3a;
   color: white;
   padding: 0.6rem 1.2rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:hover {
+  background: #4a4a4a;
+  transform: translateY(-1px);
 }
 
 /* Sync Info Styles */
@@ -264,15 +296,15 @@
 }
 
 .sync-stat-badge.success {
-  background: #e8f5e9;
-  color: #2e7d32;
-  border: 1px solid #81c784;
+  background: #102a1a;
+  color: #6ee7b7;
+  border: 1px solid #1a4428;
 }
 
 .sync-stat-badge.error {
-  background: #ffebee;
-  color: #c62828;
-  border: 1px solid #ef5350;
+  background: #2a1a1a;
+  color: #fca5a5;
+  border: 1px solid #441a1a;
 }
 
 /* Sync Modal Styles */
@@ -285,26 +317,27 @@
   width: 100%;
   height: 100%;
   overflow: auto;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.7);
 }
 
 .sync-modal-content {
-  background-color: #fff;
+  background-color: #1a1a1a;
   margin: 5% auto;
   border-radius: 12px;
   width: 90%;
   max-width: 700px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
 }
 
 .sync-modal-header {
   padding: 1.5rem;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .sync-modal-header h2 {
   margin: 0;
-  color: #1976d2;
+  color: #4a9eff;
 }
 
 .sync-modal-body {
@@ -315,7 +348,7 @@
 
 .sync-modal-footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #2a2a2a;
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
@@ -327,8 +360,8 @@
 }
 
 .sync-spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #1976d2;
+  border: 4px solid #2a2a2a;
+  border-top: 4px solid #4a9eff;
   border-radius: 50%;
   width: 50px;
   height: 50px;
@@ -346,8 +379,8 @@
 }
 
 .sync-summary {
-  background: #e3f2fd;
-  border: 1px solid #90caf9;
+  background: #1a2432;
+  border: 1px solid #2a3a52;
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1.5rem;
@@ -355,7 +388,7 @@
 
 .sync-summary h3 {
   margin: 0 0 0.5rem 0;
-  color: #1976d2;
+  color: #4a9eff;
 }
 
 .sync-stat {
@@ -366,12 +399,12 @@
 
 .sync-stat-label {
   font-weight: 500;
-  color: #666;
+  color: #aaa;
 }
 
 .sync-stat-value {
   font-weight: 700;
-  color: #1976d2;
+  color: #4a9eff;
 }
 
 .provider-results {
@@ -379,16 +412,16 @@
 }
 
 .provider-result {
-  background: #fafafa;
-  border: 1px solid #e0e0e0;
+  background: #242424;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1rem;
 }
 
 .provider-result.error {
-  background: #ffebee;
-  border-color: #ef5350;
+  background: #2a1a1a;
+  border-color: #441a1a;
 }
 
 .provider-result h4 {
@@ -396,17 +429,18 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  color: #fff;
 }
 
 .provider-result.success h4::before {
   content: '✓';
-  color: #4caf50;
+  color: #10b981;
   font-size: 1.2rem;
 }
 
 .provider-result.error h4::before {
   content: '✗';
-  color: #f44336;
+  color: #ff6b6b;
   font-size: 1.2rem;
 }
 
@@ -418,25 +452,25 @@
 }
 
 .provider-stat {
-  background: white;
+  background: #1a1a1a;
   padding: 0.5rem;
   border-radius: 4px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #2a2a2a;
 }
 
 .provider-stat-label {
   font-size: 0.85rem;
-  color: #666;
+  color: #aaa;
 }
 
 .provider-stat-value {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #333;
+  color: #fff;
 }
 
 .error-message {
-  color: #d32f2f;
+  color: #fca5a5;
   margin-top: 0.5rem;
   font-size: 0.9rem;
 }
@@ -463,6 +497,16 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       syncModalFooter.style.display = 'none';
 
+      async function parseErrorResponse(response) {
+        try {
+          const data = await response.json();
+          return data.detail || data.message || JSON.stringify(data);
+        } catch (error) {
+          const text = await response.text();
+          return text || response.statusText;
+        }
+      }
+
       try {
         const response = await fetch('/sync', {
           method: 'POST',
@@ -472,7 +516,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorDetail = await parseErrorResponse(response);
+          throw new Error(`HTTP ${response.status}: ${errorDetail}`);
         }
 
         const results = await response.json();

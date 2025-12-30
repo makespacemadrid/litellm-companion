@@ -3,18 +3,48 @@ import logging
 from datetime import UTC, datetime
 
 from shared.sources import fetch_source_models
-from shared.crud import upsert_model, get_models_by_provider
+from shared.crud import upsert_model, get_models_by_provider, delete_model
 from shared.models import ModelMetadata, SourceEndpoint, SourceType
+from shared.db_models import Model
 from backend.litellm_client import reconcile_litellm_models
 
 logger = logging.getLogger(__name__)
+
+
+def _has_user_overrides(model: Model) -> bool:
+    """
+    Check if a model has any user-applied configuration overrides.
+
+    Returns True if the model has:
+    - User-modified parameters (user_params)
+    - User-added tags (user_tags)
+    - Custom pricing override (pricing_override)
+    - Model-level Ollama mode override (ollama_mode)
+    - User modified flag
+    """
+    return (
+        model.user_modified
+        or model.user_params is not None
+        or model.user_tags is not None
+        or model.pricing_override is not None
+        or model.ollama_mode is not None
+    )
 
 
 async def sync_provider(session, config, provider, push_to_litellm: bool = True) -> dict:
     """
     Sync a single provider: fetch models, update database, push to LiteLLM.
 
-    Returns dict with stats: {"added": int, "updated": int, "orphaned": int}
+    Returns dict with stats: {"added": int, "updated": int, "orphaned": int, "deleted": int}
+
+    When a model disappears from the provider:
+    - If model has NO user overrides (user_params, user_tags, pricing_override, etc.)
+      → deleted immediately
+    - If model HAS user overrides → marked as orphaned (so overrides can be reapplied
+      if model returns)
+
+    Orphaned models are NOT synced to LiteLLM and will be removed from LiteLLM during
+    reconciliation.
     """
     stats = {"added": 0, "updated": 0, "orphaned": 0}
 
@@ -80,14 +110,24 @@ async def sync_provider(session, config, provider, push_to_litellm: bool = True)
             else:
                 stats["updated"] += 1
 
-        # Mark orphaned models (models that no longer exist in provider)
+        # Handle models that no longer exist in provider
         all_models = await get_models_by_provider(session, provider.id)
+        stats["deleted"] = 0  # Track deleted models
+
         for model in all_models:
             if model.model_id not in active_model_ids and not model.is_orphaned:
-                model.is_orphaned = True
-                model.orphaned_at = datetime.now(UTC)
-                stats["orphaned"] += 1
-                logger.info("Model %s marked as orphaned", model.model_id)
+                # Model disappeared from provider
+                if _has_user_overrides(model):
+                    # Has user overrides - keep as orphaned so overrides can be reapplied if model returns
+                    model.is_orphaned = True
+                    model.orphaned_at = datetime.now(UTC)
+                    stats["orphaned"] += 1
+                    logger.info("Model %s marked as orphaned (has user overrides)", model.model_id)
+                else:
+                    # No user overrides - delete immediately
+                    await delete_model(session, model)
+                    stats["deleted"] += 1
+                    logger.info("Model %s deleted (no user overrides)", model.model_id)
 
         # Reconcile with LiteLLM if configured and requested
         if push_to_litellm and config.litellm_base_url:

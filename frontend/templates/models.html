@@ -89,9 +89,10 @@
   <div class="results-summary">
     <span id="results-count">Loading...</span>
   </div>
+  <div id="models-message" class="action-message"></div>
 
-  <!-- Models Grid -->
-  <div id="models-grid" class="models-grid">
+  <!-- Models List -->
+  <div id="models-grid" class="models-list">
     Loading models...
   </div>
 </section>
@@ -103,6 +104,7 @@
       <h2 id="modal-title">Model Details</h2>
       <span class="modal-close" onclick="closeModal()">&times;</span>
     </div>
+    <div id="model-action-message" class="action-message"></div>
     <div class="modal-body" id="modal-body">
       Loading...
     </div>
@@ -114,8 +116,8 @@
 
 <style>
 .filters-panel {
-  background: #f9f9f9;
-  border: 1px solid #e0e0e0;
+  background: #242424;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
@@ -129,14 +131,17 @@
   width: 100%;
   padding: 0.75rem;
   font-size: 1rem;
-  border: 2px solid #e0e0e0;
+  border: 2px solid #3a3a3a;
   border-radius: 8px;
   transition: border-color 0.2s;
+  background: #1a1a1a;
+  color: #e0e0e0;
 }
 
 .search-box input:focus {
   outline: none;
-  border-color: #1976d2;
+  border-color: #4a9eff;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
 }
 
 .filters-grid {
@@ -167,16 +172,17 @@
   display: block;
   font-weight: 600;
   margin-bottom: 0.4rem;
-  color: #333;
+  color: #e0e0e0;
   font-size: 0.9rem;
 }
 
 .filter-group select {
   width: 100%;
   padding: 0.5rem;
-  border: 1px solid #ddd;
+  border: 1px solid #3a3a3a;
   border-radius: 4px;
-  background: white;
+  background: #1a1a1a;
+  color: #e0e0e0;
   flex: 1;
 }
 
@@ -190,8 +196,8 @@
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.4rem 0.5rem;
-  background: white;
-  border: 1px solid #ddd;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
   border-radius: 4px;
   flex: 1;
   min-height: 0;
@@ -225,56 +231,65 @@
 
 .results-summary {
   padding: 0.75rem 1rem;
-  background: #f0f7ff;
-  border-left: 3px solid #1976d2;
+  background: #1a2432;
+  border-left: 3px solid #4a9eff;
   border-radius: 4px;
   margin-bottom: 1rem;
   font-weight: 500;
+  color: #93c5fd;
 }
 
-.models-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
+.models-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .model-card {
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: #242424;
+  border: 1px solid #333;
   border-radius: 8px;
-  padding: 1rem;
+  padding: 0.65rem 0.9rem;
   transition: all 0.2s;
   cursor: pointer;
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) minmax(220px, 3fr);
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .model-card:hover {
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(74, 158, 255, 0.2);
   transform: translateY(-2px);
-  border-color: #1976d2;
+  border-color: #4a9eff;
+  background: #2a2a2a;
 }
 
 .model-card.orphaned {
-  background: #ffebee;
-  border-color: #d32f2f;
+  background: #2a1a1a;
+  border-color: #ff6b6b;
   opacity: 0.7;
 }
 
-.model-header {
+.model-main {
   display: flex;
-  justify-content: space-between;
-  align-items: start;
-  margin-bottom: 0.75rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
 }
 
 .model-name {
   font-weight: 700;
   font-size: 1rem;
-  color: #1976d2;
-  word-break: break-word;
+  color: #4a9eff;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .model-card.orphaned .model-name {
-  color: #d32f2f;
+  color: #ff6b6b;
 }
 
 .model-category {
@@ -283,27 +298,36 @@
 }
 
 .model-provider {
-  color: #666;
+  color: #aaa;
   font-size: 0.85rem;
-  margin-bottom: 0.5rem;
 }
 
 .model-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 0.35rem;
+  margin-bottom: 0;
 }
 
+.capabilities-list {
+  justify-content: flex-end;
+}
+
+.model-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
 .meta-badge {
   display: inline-flex;
   align-items: center;
   padding: 0.25rem 0.5rem;
-  background: #f0f7ff;
-  border: 1px solid #cfe3ff;
+  background: #1a2432;
+  border: 1px solid #2a3a52;
   border-radius: 12px;
   font-size: 0.75rem;
-  color: #1976d2;
+  color: #93c5fd;
   font-weight: 500;
 }
 
@@ -316,39 +340,43 @@
 
 .cap-badge {
   padding: 0.2rem 0.5rem;
-  background: #e8f5e9;
-  border: 1px solid #c8e6c9;
+  background: #102a1a;
+  border: 1px solid #1a4428;
   border-radius: 8px;
   font-size: 0.7rem;
-  color: #2e7d32;
+  color: #6ee7b7;
 }
 
 .btn-primary {
-  background: #1976d2;
+  background: #4a9eff;
   color: white;
   padding: 0.6rem 1.2rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 0.9rem;
+  transition: all 0.2s;
 }
 
 .btn-primary:hover {
-  background: #1565c0;
+  background: #3a8eef;
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
-  background: #757575;
+  background: #3a3a3a;
   color: white;
   padding: 0.6rem 1.2rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 0.9rem;
+  transition: all 0.2s;
 }
 
 .btn-secondary:hover {
-  background: #616161;
+  background: #4a4a4a;
+  transform: translateY(-1px);
 }
 
 .toggle-label {
@@ -365,6 +393,29 @@
   margin: 0 0.5rem;
 }
 
+.action-message {
+  display: none;
+  margin: 0 1.5rem 1rem 1.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+}
+
+.action-message.success {
+  display: block;
+  background: #102a1a;
+  border-color: #1a4428;
+  color: #6ee7b7;
+}
+
+.action-message.error {
+  display: block;
+  background: #2a1a1a;
+  border-color: #4b1a1a;
+  color: #fca5a5;
+}
+
 /* Modal Styles */
 .modal {
   display: none;
@@ -375,11 +426,11 @@
   width: 100%;
   height: 100%;
   overflow: auto;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.7);
 }
 
 .modal-content {
-  background-color: #fff;
+  background-color: #1a1a1a;
   margin: 2% auto;
   border-radius: 12px;
   width: 90%;
@@ -387,7 +438,8 @@
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid #333;
 }
 
 .modal-header {
@@ -395,25 +447,25 @@
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .modal-header h2 {
   margin: 0;
-  color: #1976d2;
+  color: #4a9eff;
 }
 
 .modal-close {
   font-size: 2rem;
   font-weight: 300;
-  color: #999;
+  color: #888;
   cursor: pointer;
   line-height: 1;
   transition: color 0.2s;
 }
 
 .modal-close:hover {
-  color: #333;
+  color: #e0e0e0;
 }
 
 .modal-body {
@@ -424,7 +476,7 @@
 
 .modal-footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #2a2a2a;
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
@@ -436,9 +488,9 @@
 
 .detail-section h3 {
   margin: 0 0 0.75rem 0;
-  color: #333;
+  color: #fff;
   font-size: 1.1rem;
-  border-bottom: 2px solid #1976d2;
+  border-bottom: 2px solid #4a9eff;
   padding-bottom: 0.5rem;
 }
 
@@ -450,28 +502,30 @@
 
 .detail-item {
   padding: 0.5rem;
-  background: #f9f9f9;
+  background: #242424;
   border-radius: 4px;
+  border: 1px solid #333;
 }
 
 .detail-label {
   font-size: 0.85rem;
-  color: #666;
+  color: #aaa;
   font-weight: 600;
   margin-bottom: 0.25rem;
 }
 
 .detail-value {
   font-size: 0.95rem;
-  color: #333;
+  color: #e0e0e0;
   word-break: break-word;
 }
 
 .detail-value code {
-  background: #e8f5e9;
+  background: #102a1a;
   padding: 0.2rem 0.4rem;
   border-radius: 3px;
   font-size: 0.9rem;
+  color: #6ee7b7;
 }
 
 .tags-list {
@@ -483,16 +537,16 @@
 
 .tag-item {
   padding: 0.3rem 0.7rem;
-  background: #e3f2fd;
-  border: 1px solid #90caf9;
+  background: #1a2432;
+  border: 1px solid #2a3a52;
   border-radius: 12px;
   font-size: 0.85rem;
-  color: #1976d2;
+  color: #93c5fd;
 }
 
 .json-viewer {
-  background: #f5f5f5;
-  border: 1px solid #ddd;
+  background: #0f172a;
+  border: 1px solid #2a2a2a;
   border-radius: 4px;
   padding: 1rem;
   font-family: 'Courier New', monospace;
@@ -500,6 +554,7 @@
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  color: #e2e8f0;
 }
 
 .capabilities-grid {
@@ -535,12 +590,60 @@
 .capability-name {
   flex: 1;
 }
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.action-field label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #aaa;
+  margin-bottom: 0.25rem;
+}
+
+.action-field input,
+.action-field select {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #3a3a3a;
+  background: #1a1a1a;
+  color: #e0e0e0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
 </style>
 
 <script>
 let allModels = [];
 let filteredModels = [];
 let providers = [];
+let currentModel = null;
 
 // Category icons
 const categoryIcons = {
@@ -711,26 +814,20 @@ function renderModels() {
 
     return `
       <div class="model-card ${model.is_orphaned ? 'orphaned' : ''}" onclick="showModelDetails(${model.id})">
-        <div class="model-header">
-          <div>
-            <div class="model-name">${model.display_name || model.model_id}</div>
-            <div class="model-provider">${model.provider_name}</div>
-          </div>
-          <div class="model-category" title="${model.category}">${icon}</div>
+        <div class="model-main">
+          <div class="model-name" title="${model.display_name || model.model_id}">${model.display_name || model.model_id}</div>
+          <div class="model-provider">${model.provider_name}</div>
         </div>
 
-        <div class="model-meta">
+        <div class="model-stats">
           ${model.context_window ? `<span class="meta-badge">📏 ${contextDisplay} context</span>` : ''}
-          ${model.is_orphaned ? `<span class="meta-badge" style="background: #ffebee; border-color: #ffccc2; color: #d32f2f;">⚠️ Orphaned</span>` : ''}
-          ${model.user_modified ? `<span class="meta-badge" style="background: #f0f7ff;">✏️ Modified</span>` : ''}
-        </div>
-
-        ${model.capabilities && model.capabilities.length > 0 ? `
-          <div class="capabilities-list">
+          ${model.is_orphaned ? `<span class="meta-badge" style="background: #2a1a1a; border-color: #4b1a1a; color: #fca5a5;">⚠️ Orphaned</span>` : ''}
+          ${model.user_modified ? `<span class="meta-badge" style="background: #1a2432; border-color: #2a3a52; color: #93c5fd;">✏️ Modified</span>` : ''}
+          ${model.capabilities && model.capabilities.length > 0 ? `
             ${model.capabilities.slice(0, 5).map(cap => `<span class="cap-badge">${cap}</span>`).join('')}
             ${model.capabilities.length > 5 ? `<span class="cap-badge">+${model.capabilities.length - 5}</span>` : ''}
-          </div>
-        ` : ''}
+          ` : ''}
+        </div>
       </div>
     `;
   }).join('');
@@ -826,6 +923,43 @@ function formatPricing(value) {
   return `$${num.toFixed(4)}`;
 }
 
+function showMessage(targetId, message, type) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('success', 'error');
+  if (type) {
+    el.style.display = '';
+    el.classList.add(type);
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function showPageMessage(message, type) {
+  showMessage('models-message', message, type);
+}
+
+function showModelMessage(message, type) {
+  showMessage('model-action-message', message, type);
+}
+
+async function parseResponseError(response) {
+  try {
+    const data = await response.json();
+    return data.detail || data.message || response.statusText;
+  } catch (error) {
+    return response.statusText;
+  }
+}
+
+function updateLocalModel(modelId, updates) {
+  const index = allModels.findIndex(m => m.id === modelId);
+  if (index === -1) return;
+  allModels[index] = { ...allModels[index], ...updates };
+  applyFilters();
+}
+
 // Model details modal functions
 async function showModelDetails(modelId) {
   const modal = document.getElementById('model-modal');
@@ -834,12 +968,14 @@ async function showModelDetails(modelId) {
 
   modal.style.display = 'block';
   modalBody.innerHTML = '<p>Loading model details...</p>';
+  showModelMessage('', null);
 
   try {
     const response = await fetch(`/api/models/${modelId}`);
     if (!response.ok) throw new Error('Failed to load model details');
 
     const model = await response.json();
+    currentModel = model;
 
     // Find provider info
     const provider = providers.find(p => p.id === model.provider_id);
@@ -848,6 +984,72 @@ async function showModelDetails(modelId) {
 
     // Build detail sections
     let html = '';
+
+    const effectiveParams = model.user_params || model.litellm_params || {};
+    const modeValue = ['chat', 'completion'].includes(effectiveParams.mode) ? effectiveParams.mode : 'default';
+    const inputOverride = model.pricing_override && model.pricing_override.input_cost_per_token !== undefined
+      ? model.pricing_override.input_cost_per_token
+      : '';
+    const outputOverride = model.pricing_override && model.pricing_override.output_cost_per_token !== undefined
+      ? model.pricing_override.output_cost_per_token
+      : '';
+
+    html += `
+      <div class="detail-section">
+        <h3>Actions</h3>
+        <div class="action-grid">
+          <div class="action-field">
+            <label>Sync Enabled</label>
+            <label class="toggle-label">
+              <input type="checkbox" id="model-sync-enabled" ${model.sync_enabled ? 'checked' : ''} />
+              <span>${model.sync_enabled ? 'Enabled' : 'Disabled'}</span>
+            </label>
+          </div>
+          <div class="action-field">
+            <label>Mode</label>
+            <select id="model-mode">
+              <option value="default" ${modeValue === 'default' ? 'selected' : ''}>Default</option>
+              <option value="chat" ${modeValue === 'chat' ? 'selected' : ''}>Chat</option>
+              <option value="completion" ${modeValue === 'completion' ? 'selected' : ''}>Completion</option>
+            </select>
+          </div>
+          <div class="action-field">
+            <label>Input $/token</label>
+            <input type="number" id="model-input-price" step="0.000000001" placeholder="Leave blank to keep" value="${inputOverride}">
+          </div>
+          <div class="action-field">
+            <label>Output $/token</label>
+            <input type="number" id="model-output-price" step="0.000000001" placeholder="Leave blank to keep" value="${outputOverride}">
+          </div>
+        </div>
+        <div class="action-buttons">
+          <button class="btn-primary" type="button" onclick="saveModelEdits(${model.id})">Save Changes</button>
+          <button class="btn-danger" type="button" onclick="deleteModel(${model.id})">Delete</button>
+        </div>
+      </div>
+    `;
+
+    html += `
+      <div class="detail-section">
+        <h3>Create Compat Alias</h3>
+        <div class="action-grid">
+          <div class="action-field">
+            <label>Compat Name</label>
+            <input type="text" id="compat-name" placeholder="gpt-4o, gpt-3.5-turbo">
+          </div>
+          <div class="action-field">
+            <label>Compat Mode</label>
+            <select id="compat-mode">
+              <option value="chat">Chat</option>
+              <option value="completion">Completion</option>
+            </select>
+          </div>
+        </div>
+        <div class="action-buttons">
+          <button class="btn-secondary" type="button" onclick="createCompatFromModel(${model.id})">Create Compat</button>
+        </div>
+      </div>
+    `;
 
     // Basic Information
     html += `
@@ -951,7 +1153,6 @@ async function showModelDetails(modelId) {
     }
 
     // Pricing
-    const effectiveParams = model.user_params || model.litellm_params || {};
     const hasInputPrice = effectiveParams.input_cost_per_token !== undefined;
     const hasOutputPrice = effectiveParams.output_cost_per_token !== undefined;
     const hasPricing = hasInputPrice || hasOutputPrice || model.pricing_profile;
@@ -1062,6 +1263,98 @@ async function showModelDetails(modelId) {
 
 function closeModal() {
   document.getElementById('model-modal').style.display = 'none';
+  showModelMessage('', null);
+}
+
+async function saveModelEdits(modelId) {
+  const syncEnabled = document.getElementById('model-sync-enabled').checked;
+  const mode = document.getElementById('model-mode').value;
+  const inputCost = document.getElementById('model-input-price').value;
+  const outputCost = document.getElementById('model-output-price').value;
+
+  const payload = { sync_enabled: syncEnabled, mode };
+  if (inputCost !== '') payload.input_cost_per_token = inputCost;
+  if (outputCost !== '') payload.output_cost_per_token = outputCost;
+
+  try {
+    const response = await fetch(`/api/models/${modelId}/params`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorMessage = await parseResponseError(response);
+      showModelMessage(`Error saving model: ${errorMessage}`, 'error');
+      return;
+    }
+
+    updateLocalModel(modelId, { sync_enabled: syncEnabled, user_modified: true });
+    showModelMessage('Model updated successfully.', 'success');
+  } catch (error) {
+    showModelMessage(`Error saving model: ${error.message}`, 'error');
+  }
+}
+
+async function deleteModel(modelId) {
+  if (!confirm('Are you sure you want to delete this model?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/models/${modelId}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const errorMessage = await parseResponseError(response);
+      showModelMessage(`Error deleting model: ${errorMessage}`, 'error');
+      return;
+    }
+
+    allModels = allModels.filter(m => m.id !== modelId);
+    applyFilters();
+    closeModal();
+    showPageMessage('Model deleted successfully.', 'success');
+  } catch (error) {
+    showModelMessage(`Error deleting model: ${error.message}`, 'error');
+  }
+}
+
+async function createCompatFromModel(modelId) {
+  const compatName = document.getElementById('compat-name').value.trim();
+  const compatMode = document.getElementById('compat-mode').value;
+
+  if (!compatName) {
+    showModelMessage('Compat name is required.', 'error');
+    return;
+  }
+
+  if (!currentModel) {
+    showModelMessage('Model data not loaded.', 'error');
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('model_name', compatName);
+    formData.append('mapped_provider_id', String(currentModel.provider_id));
+    formData.append('mapped_model_id', currentModel.model_id);
+    formData.append('mode', compatMode);
+
+    const response = await fetch('/api/compat/models', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorMessage = await parseResponseError(response);
+      showModelMessage(`Error creating compat: ${errorMessage}`, 'error');
+      return;
+    }
+
+    showModelMessage(`Compat model "${compatName}" created.`, 'success');
+    document.getElementById('compat-name').value = '';
+  } catch (error) {
+    showModelMessage(`Error creating compat: ${error.message}`, 'error');
+  }
 }
 
 // Close modal when clicking outside of it

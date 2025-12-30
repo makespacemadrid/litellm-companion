@@ -12,6 +12,22 @@ from .pricing_profiles import apply_pricing_overrides
 from .tags import generate_model_tags, normalize_tags
 
 
+def _normalize_provider_base_url(base_url: str | None, type_: str | None) -> str | None:
+    """Normalize provider base_url for known API patterns."""
+    if base_url is None:
+        return None
+    normalized = base_url.strip()
+    if not normalized:
+        return None
+    normalized = normalized.rstrip("/")
+    if type_ == "openai":
+        if normalized.endswith("/openai/v1"):
+            normalized = normalized[: -len("/openai/v1")] + "/v1/openai"
+        elif normalized.endswith("/v1"):
+            normalized = normalized[: -len("/v1")]
+    return normalized
+
+
 # Config CRUD Operations
 
 
@@ -93,6 +109,7 @@ async def create_provider(
     tags: list[str] | None = None,
     access_groups: list[str] | None = None,
     sync_enabled: bool = True,
+    sync_interval_seconds: int | None = None,
     pricing_profile: str | None = None,
     pricing_override: dict | None = None,
     auto_detect_fim: bool = True,
@@ -101,6 +118,7 @@ async def create_provider(
     """Create a new provider."""
     if type_ == "ollama" and default_ollama_mode is None:
         default_ollama_mode = "ollama_chat"
+    base_url = _normalize_provider_base_url(base_url, type_)
     provider = Provider(
         name=name,
         base_url=base_url,
@@ -109,6 +127,7 @@ async def create_provider(
         prefix=prefix,
         default_ollama_mode=default_ollama_mode,
         sync_enabled=sync_enabled,
+        sync_interval_seconds=sync_interval_seconds,
         pricing_profile=pricing_profile,
         auto_detect_fim=auto_detect_fim,
         model_filter=model_filter,
@@ -148,6 +167,7 @@ async def update_provider(
     tags: list[str] | None = None,
     access_groups: list[str] | None = None,
     sync_enabled: bool | None = None,
+    sync_interval_seconds: int | None = None,
     pricing_profile: str | None = None,
     pricing_override: dict | None = None,
     auto_detect_fim: bool | None = None,
@@ -156,7 +176,7 @@ async def update_provider(
     if name is not None:
         provider.name = name
     if base_url is not None:
-        provider.base_url = base_url
+        provider.base_url = _normalize_provider_base_url(base_url, type_ or provider.type)
     if type_ is not None:
         provider.type = type_
     if api_key is not None:
@@ -175,6 +195,8 @@ async def update_provider(
         provider.access_groups_list = normalize_tags(access_groups)
     if sync_enabled is not None:
         provider.sync_enabled = sync_enabled
+    if sync_interval_seconds is not None:
+        provider.sync_interval_seconds = sync_interval_seconds
     if pricing_profile is not None:
         provider.pricing_profile = pricing_profile
     if pricing_override is not None:
@@ -190,7 +212,7 @@ async def update_provider_from_source(
     session: AsyncSession, provider: Provider, source: SourceEndpoint
 ) -> Provider:
     """Update existing provider from SourceEndpoint."""
-    provider.base_url = str(source.base_url)
+    provider.base_url = _normalize_provider_base_url(str(source.base_url), source.type.value)
     provider.type = source.type.value
     provider.api_key = source.api_key
     provider.prefix = getattr(source, "prefix", None)

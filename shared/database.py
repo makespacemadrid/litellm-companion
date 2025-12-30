@@ -109,6 +109,14 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
             # Column already exists - this is expected and OK
             logger.info(f"model_filter column already exists (expected): {str(e)[:100]}")
 
+        # Add sync_interval_seconds column to providers table
+        try:
+            await conn.exec_driver_sql("ALTER TABLE providers ADD COLUMN sync_interval_seconds INTEGER")
+            logger.info("Added sync_interval_seconds column to providers table")
+        except Exception as e:
+            # Column already exists - this is expected and OK
+            logger.info(f"sync_interval_seconds column already exists (expected): {str(e)[:100]}")
+
         # Models.system_tags / user_tags / access_groups / sync_enabled / mapped_provider_id / mapped_model_id
         result = await conn.exec_driver_sql("PRAGMA table_info(models)")
         model_columns = {row[1] for row in result}
@@ -180,6 +188,7 @@ async def ensure_minimum_schema(engine: AsyncEngine) -> None:
                 "pricing_profile",
                 "pricing_override",
                 "sync_enabled",
+                "sync_interval_seconds",
                 "auto_detect_fim",
                 "model_filter",
                 "created_at",
