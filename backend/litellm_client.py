@@ -197,6 +197,37 @@ def _extract_tag_value(tags: list[str], prefix: str) -> str | None:
     return None
 
 
+def _apply_openai_capability_metadata(model_info: dict, tags: list[str], model_mode: str) -> None:
+    """Normalize capability fields into OpenAI-style model_info supports_* keys."""
+    tagset = {str(tag).lower() for tag in (tags or [])}
+
+    has_chat = "capability:chat" in tagset
+    has_completion = "capability:completion" in tagset
+    has_tools = "capability:tools" in tagset or "capability:function_calling" in tagset
+    has_vision = "capability:vision" in tagset
+    has_audio = "capability:audio" in tagset or "capability:audio_input" in tagset
+
+    # Prefer capability tags to infer mode; fallback to requested mode.
+    if has_chat:
+        normalized_mode = "chat"
+    elif has_completion and not has_chat:
+        normalized_mode = "completion"
+    else:
+        normalized_mode = "completion" if model_mode == "completion" else "chat"
+
+    model_info["mode"] = normalized_mode
+    model_info["supports_chat"] = has_chat or normalized_mode == "chat"
+    model_info["supports_completion"] = has_completion or normalized_mode == "completion"
+    model_info["supports_function_calling"] = has_tools
+    model_info["supports_tool_choice"] = has_tools
+    model_info["supports_vision"] = has_vision
+    model_info["supports_audio_input"] = has_audio
+
+    if model_info["supports_chat"]:
+        model_info.setdefault("supports_system_messages", True)
+        model_info.setdefault("supports_native_streaming", True)
+
+
 async def list_routing_group_deployments(config) -> list[dict]:
     """Return LiteLLM models tagged as routing groups."""
     if not config.litellm_base_url:
@@ -358,6 +389,7 @@ async def push_model_to_litellm(
 
     litellm_params["tags"] = tags
     model_info["tags"] = tags
+    _apply_openai_capability_metadata(model_info, tags, model_mode)
 
     # Add access_groups
     access_groups = model.get_effective_access_groups()
