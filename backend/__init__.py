@@ -1,3 +1,3 @@
 """Backend sync worker service."""
 
-__version__ = "0.6.30"
+__version__ = "0.6.31"

@@ -418,6 +418,60 @@ def _fallback_context_window(model_id: str, context_window: int | None) -> int |
     return None
 
 
+def _fallback_max_output_tokens(
+    model_id: str,
+    max_output_tokens: int | None,
+    max_tokens: int | None,
+    context_window: int | None,
+    model_type: str | None,
+) -> int | None:
+    """Infer max_output_tokens when upstream metadata omits it."""
+    if max_output_tokens is not None:
+        return max_output_tokens
+
+    # Embedding-style models do not have completion output token budgets.
+    lowered_type = (model_type or "").lower()
+    lowered_id = model_id.lower()
+    if "embedding" in lowered_type or "embed" in lowered_id:
+        return None
+
+    # When a provider exposes max_tokens, use that as the best available bound.
+    if max_tokens is not None:
+        return max_tokens
+
+    # Family/model heuristics for common chat/completion models in this deployment.
+    if "gpt-oss-120b" in lowered_id or "gpt-oss:120b" in lowered_id:
+        return 131072
+    if "gpt-oss-20b" in lowered_id or "gpt-oss:20b" in lowered_id:
+        return 65536
+    if "deepseek-v3" in lowered_id:
+        return 65536
+    if "qwen3-coder" in lowered_id:
+        return 65536
+    if "qwen3" in lowered_id or "qwen-3" in lowered_id:
+        return 32768
+    if "kimi-k2.5" in lowered_id:
+        return 65536
+    if "kimi-k2" in lowered_id:
+        return 32768
+    if "minimax-m2.5" in lowered_id:
+        return 65536
+    if "glm-5" in lowered_id:
+        return 65536
+    if "glm-4.7" in lowered_id or "glm-4.6" in lowered_id:
+        return 32768
+    if "llama-3.3" in lowered_id:
+        return 16384
+    if "llama-3.1" in lowered_id or "llama-3.2" in lowered_id:
+        return 8192
+
+    # Last resort: derive from context window, but keep sane limits.
+    if context_window is not None:
+        return max(2048, min(context_window // 2, 65536))
+
+    return None
+
+
 def _extract_tags(raw: dict) -> list[str]:
     """Extract and normalize tags from common payload sections."""
 
@@ -595,6 +649,13 @@ class ModelMetadata(BaseModel):
         model_type = _extract_model_type(model_id, raw, capabilities)
         capabilities = _ensure_capabilities(model_id, capabilities, model_type)
         context_window = _fallback_context_window(model_id, context_window)
+        max_output_tokens = _fallback_max_output_tokens(
+            model_id=model_id,
+            max_output_tokens=max_output_tokens,
+            max_tokens=max_tokens,
+            context_window=context_window,
+            model_type=model_type,
+        )
         tags = _extract_tags(raw)
 
         return cls(
