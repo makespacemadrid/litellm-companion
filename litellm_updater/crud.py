@@ -227,9 +227,29 @@ async def get_model_by_provider_and_name(
     result = await session.execute(
         select(Model)
         .where(Model.provider_id == provider_id, Model.model_id == model_id)
+        .order_by(
+            Model.is_orphaned.asc(),
+            Model.last_seen.desc(),
+            Model.updated_at.desc(),
+            Model.id.desc(),
+        )
         .options(selectinload(Model.provider))
     )
-    return result.scalar_one_or_none()
+    matches = list(result.scalars().all())
+    if not matches:
+        return None
+    if len(matches) > 1:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Duplicate model rows found for provider_id=%s model_id=%s (count=%s); using id=%s",
+            provider_id,
+            model_id,
+            len(matches),
+            matches[0].id,
+        )
+    return matches[0]
 
 
 async def create_model(
