@@ -510,7 +510,7 @@ async def _needs_update(provider, model, litellm_model, config=None, session=Non
         logger.debug("Access groups changed: %s != %s", db_access_groups, ll_access_groups)
         return True
 
-    # Check pricing differences (with normalization to handle string/float inconsistencies)
+    # Check token / context metadata differences
     effective_info = apply_pricing_overrides(
         model.effective_params,
         config=config,
@@ -520,6 +520,26 @@ async def _needs_update(provider, model, litellm_model, config=None, session=Non
     ll_info = litellm_model.get('model_info', {})
     ll_params = litellm_model.get('litellm_params', {})
 
+    for key in ("max_tokens", "max_input_tokens", "max_output_tokens", "context_window"):
+        db_val = effective_info.get(key)
+        ll_info_val = ll_info.get(key)
+        ll_params_val = ll_params.get(key)
+
+        db_normalized = _normalize_value(db_val)
+        ll_info_normalized = _normalize_value(ll_info_val)
+        ll_params_normalized = _normalize_value(ll_params_val)
+
+        if db_normalized != ll_info_normalized or db_normalized != ll_params_normalized:
+            logger.debug(
+                "Token metadata changed for %s: ll_info=%s, ll_params=%s, db=%s",
+                key,
+                ll_info_val,
+                ll_params_val,
+                db_val,
+            )
+            return True
+
+    # Check pricing differences (with normalization to handle string/float inconsistencies)
     for key, value in effective_info.items():
         if "cost" not in key:
             continue
