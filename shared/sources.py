@@ -191,7 +191,8 @@ async def fetch_openai_models(client: httpx.AsyncClient, source: SourceEndpoint)
     if base_url.endswith(("/v1", "/v1/openai", "/openai/v1")):
         url = f"{base_url}/models"
     elif base_url.endswith("/openai"):
-        url = f"{base_url}/v1/models"
+        # Some providers (e.g., Gemini OpenAI compatibility) expose /openai/models directly.
+        url = f"{base_url}/models"
     else:
         url = f"{base_url}/v1/models"
     headers = _make_auth_headers(source.api_key)
@@ -220,7 +221,7 @@ async def fetch_openai_models(client: httpx.AsyncClient, source: SourceEndpoint)
         if base_url.endswith(("/v1", "/v1/openai", "/openai/v1")):
             detail_url = f"{base_url}/models/{model_id}"
         elif base_url.endswith("/openai"):
-            detail_url = f"{base_url}/v1/models/{model_id}"
+            detail_url = f"{base_url}/models/{model_id}"
         else:
             detail_url = f"{base_url}/v1/models/{model_id}"
 

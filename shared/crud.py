@@ -21,10 +21,10 @@ def _normalize_provider_base_url(base_url: str | None, type_: str | None) -> str
         return None
     normalized = normalized.rstrip("/")
     if type_ == "openai":
-        if normalized.endswith("/openai/v1"):
-            normalized = normalized[: -len("/openai/v1")] + "/v1/openai"
-        elif normalized.endswith("/v1"):
-            normalized = normalized[: -len("/v1")]
+        lower = normalized.lower()
+        # OpenRouter requires /api/v1 for OpenAI-compatible requests.
+        if lower.endswith("openrouter.ai/api"):
+            normalized = normalized + "/v1"
     return normalized
 
 

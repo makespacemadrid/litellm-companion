@@ -1,5 +1,6 @@
 """LiteLLM API client for pushing models."""
 import logging
+from collections import OrderedDict
 import httpx
 
 from shared.models import ModelMetadata
@@ -220,6 +221,8 @@ async def list_routing_group_deployments(config) -> list[dict]:
                 "group": group_name,
                 "provider": _extract_tag_value(tags, "provider:") or "",
                 "model_id": _extract_tag_value(tags, "model:") or "",
+                "routing_target": _extract_tag_value(tags, "routing_target:") or "",
+                "routing_slot": _extract_tag_value(tags, "routing_slot:") or "",
                 "model_name": model.get("model_name"),
                 "model_info_id": model.get("model_info", {}).get("id"),
                 "created_by": model.get("model_info", {}).get("created_by"),
@@ -635,6 +638,86 @@ def _merge_pricing_fields(target: dict, source: dict) -> None:
             target[key] = value
 
 
+async def _set_group_fallbacks(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str | None,
+    group_name: str,
+    fallback_models: list[str],
+) -> None:
+    """Configure general fallbacks for a routing group model."""
+    url = f"{base_url.rstrip('/')}/fallback"
+    headers = _make_auth_headers(api_key)
+    payload = {
+        "model": group_name,
+        "fallback_models": fallback_models,
+        "fallback_type": "general",
+    }
+    response = await client.post(url, json=payload, headers=headers, timeout=DEFAULT_TIMEOUT)
+    response.raise_for_status()
+
+
+async def _clear_group_fallbacks(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str | None,
+    group_name: str,
+) -> None:
+    """Delete general fallback configuration for a routing group model."""
+    url = f"{base_url.rstrip('/')}/fallback/{group_name}"
+    headers = _make_auth_headers(api_key)
+    response = await client.delete(
+        url,
+        params={"fallback_type": "general"},
+        headers=headers,
+        timeout=DEFAULT_TIMEOUT,
+    )
+    if response.status_code == 404:
+        return
+    response.raise_for_status()
+
+
+async def delete_routing_group_from_litellm(config, group_name: str) -> dict:
+    """Delete all LiteLLM deployments/fallbacks for one routing group."""
+    if not config.litellm_base_url:
+        raise RuntimeError("LiteLLM destination not configured")
+
+    group_tag = f"routing_group:{group_name}".lower()
+    stats = {"deleted": 0, "errors": 0, "fallback_deleted": 0}
+
+    async with httpx.AsyncClient() as client:
+        litellm_models = await fetch_litellm_models(client, config.litellm_base_url, config.litellm_api_key)
+        for model in litellm_models:
+            tags = _collect_litellm_tags(model)
+            if group_tag not in tags:
+                continue
+            if model.get("model_info", {}).get("created_by") != "routing_group":
+                continue
+            model_id = model.get("model_info", {}).get("id")
+            if not model_id:
+                continue
+            try:
+                await delete_model_from_litellm(
+                    client,
+                    config.litellm_base_url,
+                    config.litellm_api_key,
+                    model_id,
+                )
+                stats["deleted"] += 1
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.warning("Failed deleting routing group entry %s: %s", model_id, exc)
+
+        try:
+            await _clear_group_fallbacks(client, config.litellm_base_url, config.litellm_api_key, group_name)
+            stats["fallback_deleted"] = 1
+        except Exception as exc:
+            stats["errors"] += 1
+            logger.warning("Failed deleting fallback config for %s: %s", group_name, exc)
+
+    return stats
+
+
 async def push_routing_groups_to_litellm(session, config, group_id: int | None = None) -> dict:
     """Push routing groups to LiteLLM as model groups."""
     if not config.litellm_base_url:
@@ -650,7 +733,16 @@ async def push_routing_groups_to_litellm(session, config, group_id: int | None =
         groups = [group] if group else []
 
     groups = [g for g in groups if g is not None]
-    stats = {"groups": len(groups), "added": 0, "deleted": 0, "missing_models": 0, "errors": 0}
+    stats = {
+        "groups": len(groups),
+        "added": 0,
+        "deleted": 0,
+        "missing_models": 0,
+        "errors": 0,
+        "fallbacks_updated": 0,
+        "fallbacks_deleted": 0,
+        "targets_skipped_disabled": 0,
+    }
 
     async with httpx.AsyncClient() as client:
         litellm_models = await fetch_litellm_models(client, config.litellm_base_url, config.litellm_api_key)
@@ -658,6 +750,8 @@ async def push_routing_groups_to_litellm(session, config, group_id: int | None =
         for group in groups:
             group_tag = f"routing_group:{group.name}"
             group_tag_lower = group_tag.lower()
+            fallback_models: list[str] = []
+            seen_fallback_models: OrderedDict[str, bool] = OrderedDict()
 
             for m in litellm_models:
                 tags = m.get("litellm_params", {}).get("tags", [])
@@ -684,6 +778,9 @@ async def push_routing_groups_to_litellm(session, config, group_id: int | None =
                     logger.warning("Failed deleting routing group entry %s: %s", model_id, exc)
 
             for target in sorted(group.targets, key=lambda t: (t.priority, t.id)):
+                if not target.enabled:
+                    stats["targets_skipped_disabled"] += 1
+                    continue
                 provider = target.provider or await get_provider_by_id(session, target.provider_id)
                 if not provider:
                     stats["missing_models"] += 1
@@ -692,29 +789,66 @@ async def push_routing_groups_to_litellm(session, config, group_id: int | None =
                 if not model:
                     stats["missing_models"] += 1
                     continue
+
+                fallback_name = model.get_display_name(apply_prefix=True)
+                if fallback_name and fallback_name not in seen_fallback_models:
+                    seen_fallback_models[fallback_name] = True
+                    fallback_models.append(fallback_name)
+
+                slot_count = max(1, int(target.weight or 1))
+                routing_target_tag = f"routing_target:{provider.id}:{model.model_id}"
+                for slot in range(1, slot_count + 1):
+                    extra_tags = [group_tag, routing_target_tag, f"routing_slot:{slot}"]
+                    try:
+                        await push_model_to_litellm(
+                            client,
+                            config.litellm_base_url,
+                            config.litellm_api_key,
+                            provider,
+                            model,
+                            config=config,
+                            session=session,
+                            model_name_override=group.name,
+                            extra_tags=extra_tags,
+                            created_by="routing_group",
+                            strip_unique_id=True,
+                        )
+                        stats["added"] += 1
+                    except Exception as exc:
+                        stats["errors"] += 1
+                        logger.warning(
+                            "Failed pushing routing target %s/%s (slot=%s) for group %s: %s",
+                            provider.name,
+                            model.model_id,
+                            slot,
+                            group.name,
+                            exc,
+                        )
+
+            if fallback_models:
                 try:
-                    await push_model_to_litellm(
+                    await _set_group_fallbacks(
                         client,
                         config.litellm_base_url,
                         config.litellm_api_key,
-                        provider,
-                        model,
-                        config=config,
-                        session=session,
-                        model_name_override=group.name,
-                        extra_tags=[group_tag],
-                        created_by="routing_group",
-                        strip_unique_id=True,
+                        group.name,
+                        fallback_models,
                     )
-                    stats["added"] += 1
+                    stats["fallbacks_updated"] += 1
                 except Exception as exc:
                     stats["errors"] += 1
-                    logger.warning(
-                        "Failed pushing routing target %s/%s for group %s: %s",
-                        provider.name,
-                        model.model_id,
+                    logger.warning("Failed updating fallback config for group %s: %s", group.name, exc)
+            else:
+                try:
+                    await _clear_group_fallbacks(
+                        client,
+                        config.litellm_base_url,
+                        config.litellm_api_key,
                         group.name,
-                        exc,
                     )
+                    stats["fallbacks_deleted"] += 1
+                except Exception as exc:
+                    stats["errors"] += 1
+                    logger.warning("Failed clearing fallback config for empty group %s: %s", group.name, exc)
 
     return stats

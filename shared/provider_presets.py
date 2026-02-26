@@ -55,16 +55,29 @@ FREE_TIER_PRESETS: list[ProviderPreset] = [
         "sync_interval_seconds": 7200,  # 2 hours
     },
     {
-        "name": "Together AI",
-        "base_url": "https://api.together.xyz/v1",
+        "name": "SambaNova Cloud",
+        "base_url": "https://api.sambanova.ai/v1",
         "type": "openai",
         "default_ollama_mode": None,
         "model_filter": None,
-        "description": "Specialized models with $25 free credits",
-        "notes": "Llama 4 Scout, multimodal capabilities",
-        "limits": "$25 in free credits",
+        "description": "Fast inference endpoint with a documented free tier",
+        "notes": "OpenAI-compatible API and rate limits published by model",
+        "limits": "Free tier with model-specific rate limits",
         "api_key_required": True,
-        "api_key_url": "https://api.together.xyz/settings/api-keys",
+        "api_key_url": "https://cloud.sambanova.ai/apis",
+        "sync_interval_seconds": 3600,  # 1 hour
+    },
+    {
+        "name": "Google Gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "type": "openai",
+        "default_ollama_mode": None,
+        "model_filter": None,
+        "description": "Gemini models via OpenAI-compatible endpoint",
+        "notes": "Free usage tier available for selected models in AI Studio pricing",
+        "limits": "Free tier (model dependent)",
+        "api_key_required": True,
+        "api_key_url": "https://aistudio.google.com/app/apikey",
         "sync_interval_seconds": 3600,  # 1 hour
     },
     {

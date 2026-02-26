@@ -473,11 +473,11 @@
       return;
     }
 
-    summary.textContent = `DB targets (enabled): ${status.db_count} · LiteLLM deployments: ${status.litellm_count}`;
+    summary.textContent = `Expected deployments: ${status.db_count} · LiteLLM deployments: ${status.litellm_count}`;
 
     if (status.missing_in_litellm.length) {
       const missingList = status.missing_in_litellm
-        .map((item) => `${item.provider_name || "unknown"} / ${item.model_id}`)
+        .map((item) => `${item.provider_name || "unknown"} / ${item.model_id} (${item.actual}/${item.expected})`)
         .join(", ");
       missingEl.textContent = `Missing in LiteLLM: ${missingList}`;
     } else {

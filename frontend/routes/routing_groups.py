@@ -1,6 +1,8 @@
 """Routing group management API routes."""
 from __future__ import annotations
 
+from collections import Counter
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -9,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database import get_session
 from shared.crud import get_config
-from backend.litellm_client import push_routing_groups_to_litellm, list_routing_group_deployments
+from backend.litellm_client import (
+    push_routing_groups_to_litellm,
+    list_routing_group_deployments,
+    delete_routing_group_from_litellm,
+)
 from shared.crud import (
     get_routing_groups,
     get_routing_group,
@@ -123,7 +129,15 @@ async def create_group(
     group = await get_routing_group(session, group.id)
     if not group:
         raise HTTPException(404, "Routing group not found after create")
-    return _group_to_dict(group)
+    response = _group_to_dict(group)
+
+    config = await get_config(session)
+    if config.litellm_base_url:
+        response["sync"] = await push_routing_groups_to_litellm(session, config, group_id=group.id)
+    else:
+        response["sync"] = {"skipped": "LiteLLM destination not configured"}
+
+    return response
 
 
 @router.get("/candidates")
@@ -174,34 +188,49 @@ async def routing_group_status(session: AsyncSession = Depends(get_session)) -> 
 
     for group in groups:
         db_targets = []
-        db_keys = set()
+        db_counts: Counter[str] = Counter()
         for target in sorted(group.targets, key=lambda t: (t.priority, t.id)):
             provider_name = target.provider.name if target.provider else None
+            weight = max(1, int(target.weight or 1))
             db_targets.append(
                 {
                     "provider_name": provider_name,
                     "model_id": target.model_id,
+                    "weight": weight,
                     "enabled": target.enabled,
                 }
             )
             if target.enabled:
-                db_keys.add(_target_key(provider_name, target.model_id))
+                db_counts[_target_key(provider_name, target.model_id)] += weight
 
         litellm_targets = litellm_by_group.get(group.name, [])
-        litellm_keys = {
+        litellm_counts: Counter[str] = Counter(
             _target_key(entry.get("provider"), entry.get("model_id"))
             for entry in litellm_targets
             if entry.get("provider") and entry.get("model_id")
-        }
+        )
 
         missing_in_litellm = [
-            target for target in db_targets
-            if target["enabled"] and _target_key(target["provider_name"], target["model_id"]) not in litellm_keys
+            {
+                "provider_name": item["provider_name"],
+                "model_id": item["model_id"],
+                "expected": item["weight"],
+                "actual": litellm_counts.get(_target_key(item["provider_name"], item["model_id"]), 0),
+            }
+            for item in db_targets
+            if item["enabled"]
+            and litellm_counts.get(_target_key(item["provider_name"], item["model_id"]), 0) < item["weight"]
         ]
-        extra_in_litellm = [
-            entry for entry in litellm_targets
-            if _target_key(entry.get("provider"), entry.get("model_id")) not in db_keys
-        ]
+        extra_in_litellm = []
+        for entry in litellm_targets:
+            key = _target_key(entry.get("provider"), entry.get("model_id"))
+            expected = db_counts.get(key, 0)
+            if expected <= 0:
+                extra_in_litellm.append(entry)
+                continue
+            if litellm_counts[key] > expected:
+                extra_in_litellm.append(entry)
+                litellm_counts[key] -= 1
 
         response_groups.append(
             {
@@ -209,7 +238,7 @@ async def routing_group_status(session: AsyncSession = Depends(get_session)) -> 
                 "name": group.name,
                 "description": group.description,
                 "db_targets": db_targets,
-                "db_count": len([t for t in db_targets if t["enabled"]]),
+                "db_count": sum(db_counts.values()),
                 "litellm_count": len(litellm_targets),
                 "litellm_targets": litellm_targets,
                 "missing_in_litellm": missing_in_litellm,
@@ -284,7 +313,13 @@ async def update_group(
     except IntegrityError as exc:
         raise HTTPException(400, "Invalid routing group payload") from exc
 
-    return _group_to_dict(group)
+    response = _group_to_dict(group)
+    config = await get_config(session)
+    if config.litellm_base_url:
+        response["sync"] = await push_routing_groups_to_litellm(session, config, group_id=group.id)
+    else:
+        response["sync"] = {"skipped": "LiteLLM destination not configured"}
+    return response
 
 
 @router.delete("/{group_id}")
@@ -293,5 +328,9 @@ async def remove_group(group_id: int, session: AsyncSession = Depends(get_sessio
     group = await get_routing_group(session, group_id, include_children=False)
     if not group:
         raise HTTPException(404, "Routing group not found")
+    config = await get_config(session)
+    cleanup = None
+    if config.litellm_base_url:
+        cleanup = await delete_routing_group_from_litellm(config, group.name)
     await delete_routing_group(session, group)
-    return {"status": "ok"}
+    return {"status": "ok", "cleanup": cleanup}
